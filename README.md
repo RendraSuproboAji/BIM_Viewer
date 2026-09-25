@@ -80,6 +80,8 @@ npm run build      # production build in dist/
 npm start          # one Node process serving dist/ and the API on http://localhost:3001
 ```
 
+CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests and build on Node 20 and 22 for every pull request and every push to `main`.
+
 `npm run dev:web` / `npm run dev:api` start each half on its own. The viewer also works without the API: choose
 "Use the viewer without the server" on the sign-in screen. Library, saved views and issues need the server.
 
