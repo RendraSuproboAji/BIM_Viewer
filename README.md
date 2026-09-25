@@ -15,6 +15,11 @@ An experimental web BIM viewer for IFC models, built with
 - Isolate / hide / show all, zoom to selection, fit all, **X-ray** (ghost) mode
 - **Section plane** on X / Y / Z with a position slider and flip
 - Orbit/pan/zoom camera, infinite grid, and an axis gizmo
+- **Database (SQLite, via the API server)**:
+  - **Model library**: 💾 saves a loaded model as `.frag` and reopens it instantly later, without re-converting the IFC
+  - **Extracted BIM data**: every element's GUID, class, name, storey, and property/quantity sets become searchable records, exportable to CSV per model
+  - **Saved views**: camera, section plane, hidden classes, X-ray, and which library models are open
+  - **Element notes / issues**: attached to an element's GUID, with status (open / in progress / resolved). The Issues tab lists them all and jumps back to the element.
 
 ## Stack: which repo does what
 
@@ -27,6 +32,8 @@ An experimental web BIM viewer for IFC models, built with
 | [ThatOpen/engine_web-ifc](https://github.com/ThatOpen/engine_web-ifc) | WASM IFC parser used by the IFC importer |
 | [yomotsu/camera-controls](https://github.com/yomotsu/camera-controls) | Camera controls engine behind drei's `CameraControls` |
 | [pmndrs/zustand](https://github.com/pmndrs/zustand) | App state (models, selection, section, loading) |
+| [fastify/fastify](https://github.com/fastify/fastify) | API server (`server/`) |
+| [WiseLibs/better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | SQLite database |
 
 The key design choice is that **R3F owns rendering and That Open owns BIM data**.
 We don't use That Open's `World`/`SimpleRenderer`. Each loaded `FragmentsModel.object`
@@ -55,14 +62,58 @@ Structural, Electrical, Plumbing in IFC2x3, IFC4 and IFC4.3), plus variants usin
 
 ## Getting started
 
-Requires Node 20+.
+Requires Node 20.19+.
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # web app on http://localhost:5173 + API on :3001 (Vite proxies /api)
+npm test           # API tests
 npm run build      # production build in dist/
-npm run preview    # serve the build
+npm start          # one Node process serving dist/ and the API on http://localhost:3001
 ```
+
+`npm run dev:web` / `npm run dev:api` start each half on its own. The viewer works without the API;
+only the Library, Issues and Notes features need it.
+
+### Server configuration
+
+| Variable | Default | |
+| --- | --- | --- |
+| `PORT` | `3001` | API / app port |
+| `HOST` | `127.0.0.1` | Set to `0.0.0.0` to accept remote connections |
+| `DATA_DIR` | `server/data` | Holds `bim.sqlite` and uploaded `models/*.frag` (gitignored) |
+| `MAX_UPLOAD_MB` | `500` | Largest `.frag` upload |
+
+The API has **no authentication**. Keep it on localhost or put it behind an authenticating proxy before exposing it.
+
+### Database schema
+
+Defined as versioned migrations in `server/src/db.ts` (`PRAGMA user_version`), applied automatically at startup:
+
+| Table | Contents |
+| --- | --- |
+| `models` | Library entries. The `.frag` bytes live in `DATA_DIR/models/<id>.frag`. |
+| `elements` | One row per element with geometry: GUID, class, name, storey, properties (JSON) |
+| `views` | Named viewer states (JSON) |
+| `notes` | Notes/issues per element GUID, with status |
+
+Deleting a model cascades to its elements and notes.
+
+### API
+
+| Method | Path | |
+| --- | --- | --- |
+| `GET` / `POST` | `/api/models` | List / upload (`application/octet-stream`, `?name=`) |
+| `GET` / `DELETE` | `/api/models/:id` | Get / delete |
+| `GET` | `/api/models/:id/file` | Download `.frag` |
+| `PUT` | `/api/models/:id/elements` | Replace extracted element data |
+| `GET` | `/api/models/:id/elements.csv` | CSV export |
+| `GET` | `/api/elements?q=&category=&modelId=&limit=&offset=` | Search elements |
+| `GET` | `/api/elements/categories` | Element counts per class |
+| `GET` / `POST` | `/api/views` | List / create saved views |
+| `PUT` / `DELETE` | `/api/views/:id` | Update / delete |
+| `GET` / `POST` | `/api/notes?modelId=&guid=&status=` | List / create notes |
+| `PATCH` / `DELETE` | `/api/notes/:id` | Update / delete |
 
 Click **Load sample** to open ThatOpen's `school_str.ifc` (downloaded from GitHub),
 or open/drop your own `.ifc` / `.frag` file.
@@ -70,7 +121,17 @@ or open/drop your own `.ifc` / `.frag` file.
 ## Project layout
 
 ```
+shared/api.ts          types shared by the web app and the server
+server/
+  src/db.ts            SQLite connection + schema migrations
+  src/app.ts           API routes (Fastify)
+  src/index.ts         server entry (also serves dist/ in production)
+  test/api.test.ts     API tests (node:test)
 src/
+  api/client.ts        typed API client
+  bim/library.ts       save/open library models, BIM data extraction, saved views
+  bim/properties.ts    IFC property parsing (shared by panel and extraction)
+  components/Library.tsx, Notes.tsx, Issues.tsx
   bim/engine.ts        That Open setup (FragmentsManager, IfcLoader) + picking
   bim/ifc-classes.ts   full IFC class catalogue, disciplines, extra relations
   bim/actions.ts       load / select / isolate / hide / x-ray / export

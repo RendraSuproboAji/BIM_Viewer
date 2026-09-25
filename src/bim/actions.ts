@@ -25,9 +25,17 @@ export async function loadUrl(url: string) {
   }
 }
 
-async function loadBuffer(buffer: ArrayBuffer, name: string) {
+export interface LoadOptions {
+  /** Defaults to the file extension. */
+  format?: "ifc" | "frag";
+  libraryId?: string;
+  /** Frame the camera on the new model (default true). */
+  fit?: boolean;
+}
+
+export async function loadBuffer(buffer: ArrayBuffer, name: string, options: LoadOptions = {}) {
   const { setLoading, setError, addModel, requestFit, ghost, hiddenClasses } = useViewer.getState();
-  const isFrag = /\.frag$/i.test(name);
+  const isFrag = (options.format ?? (/\.frag$/i.test(name) ? "frag" : "ifc")) === "frag";
   setLoading({ label: `${isFrag ? "Loading" : "Converting"} ${name}`, progress: 0 });
   try {
     const model = isFrag
@@ -37,11 +45,13 @@ async function loadBuffer(buffer: ArrayBuffer, name: string) {
     // Apply the current class filter (spaces, openings... are hidden by default).
     const hidden = await idsOfClasses(model, hiddenClasses);
     if (hidden.length) await model.setVisible(hidden, false);
-    addModel({ id: model.modelId, name, visible: true });
-    requestFit("all");
+    addModel({ id: model.modelId, name, visible: true, libraryId: options.libraryId });
+    if (options.fit !== false) requestFit("all");
+    return model.modelId;
   } catch (e) {
     console.error(e);
     setError(`Could not load ${name}: ${errorMessage(e)}`);
+    return null;
   } finally {
     setLoading(null);
   }
@@ -148,6 +158,6 @@ export async function exportFrag(modelId: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-function errorMessage(e: unknown) {
+export function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }

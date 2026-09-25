@@ -2,6 +2,7 @@ import type { FragmentsModel, SpatialTreeItem } from "@thatopen/fragments";
 import { useEffect, useMemo, useState } from "react";
 import { exportFrag, removeModel, select, setItemsVisible, setModelVisible } from "../bim/actions";
 import { engine } from "../bim/engine";
+import { saveToLibrary } from "../bim/library";
 import { prettyCategory } from "../bim/format";
 import { useViewer, type ModelInfo } from "../bim/store";
 
@@ -35,6 +36,11 @@ function ModelNode({ info }: { info: ModelInfo }) {
         <IconButton title={info.visible ? "Hide model" : "Show model"} onClick={() => setModelVisible(info.id, !info.visible)}>
           {info.visible ? "👁" : "◌"}
         </IconButton>
+        {info.libraryId ? (
+          <span className="icon saved" title="Saved in the library">✓</span>
+        ) : (
+          <IconButton title="Save to library (model + BIM data)" onClick={() => saveToLibrary(info.id)}>💾</IconButton>
+        )}
         <IconButton title="Export as .frag" onClick={() => exportFrag(info.id)}>⤓</IconButton>
         <IconButton title="Remove model" onClick={() => removeModel(info.id)}>✕</IconButton>
       </div>

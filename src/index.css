@@ -95,3 +95,31 @@ button.active { background: var(--accent); color: #111; border-color: var(--acce
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; grid-template-rows: auto 50vh 1fr 1fr; grid-template-areas: "bar" "stage" "left" "right"; }
 }
+
+/* ---- Library, notes, issues ---- */
+.library { padding: 4px 0; }
+.library section { padding: 4px 0 10px; border-bottom: 1px solid var(--border); }
+.library h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 6px 12px; }
+.small { font-size: 11px; }
+.card { margin: 6px 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.card-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-actions { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.card-actions .small { flex: 1; }
+a.button { color: var(--text); background: var(--hover); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; text-decoration: none; }
+input:not([type]), input[type=text], textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; min-width: 0; }
+.inline-form, .search-form { display: flex; gap: 6px; padding: 4px 12px; flex-wrap: wrap; align-items: center; }
+.inline-form input, .search-form input { flex: 1; }
+.search-form select { flex: 1; }
+.row.result { cursor: pointer; }
+.pager { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; }
+.notes { border-top: 1px solid var(--border); display: flex; flex-direction: column; max-height: 45%; min-height: 0; }
+.note-form { display: flex; flex-direction: column; gap: 6px; padding: 6px 10px; }
+.note-body { margin: 6px 0 0; white-space: pre-wrap; color: var(--muted); }
+.note { border-left: 3px solid var(--border); }
+.note.status-open { border-left-color: #e5534b; }
+.note.status-in_progress { border-left-color: var(--accent); }
+.note.status-resolved { border-left-color: #3fb950; }
+button.link { background: none; border: 0; padding: 2px 0; color: var(--accent); text-align: left; }
+.icon.saved { color: #3fb950; opacity: 1; text-align: center; }
+code { background: var(--hover); padding: 1px 4px; border-radius: 4px; }
+.library p.small { margin: 4px 12px; }

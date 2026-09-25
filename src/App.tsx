@@ -2,13 +2,24 @@ import { useState } from "react";
 import { loadFile } from "./bim/actions";
 import { useViewer } from "./bim/store";
 import { Categories } from "./components/Categories";
+import { Issues } from "./components/Issues";
+import { Library } from "./components/Library";
 import { ModelTree } from "./components/ModelTree";
+import { Notes } from "./components/Notes";
 import { Properties } from "./components/Properties";
 import { Toolbar } from "./components/Toolbar";
 import { Viewport } from "./components/Viewport";
 
+type Tab = "tree" | "classes" | "library" | "issues";
+const TABS: [Tab, string][] = [
+  ["tree", "Tree"],
+  ["classes", "Classes"],
+  ["library", "Library"],
+  ["issues", "Issues"],
+];
+
 export default function App() {
-  const [tab, setTab] = useState<"tree" | "classes">("tree");
+  const [tab, setTab] = useState<Tab>("tree");
   const [dragging, setDragging] = useState(false);
   const loading = useViewer((s) => s.loading);
   const error = useViewer((s) => s.error);
@@ -19,16 +30,29 @@ export default function App() {
       <Toolbar />
       <aside className="panel left">
         <nav className="tabs">
-          <button className={tab === "tree" ? "active" : ""} onClick={() => setTab("tree")}>Spatial tree</button>
-          <button className={tab === "classes" ? "active" : ""} onClick={() => setTab("classes")}>Classes</button>
+          {TABS.map(([id, label]) => (
+            <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+              {label}
+            </button>
+          ))}
         </nav>
-        {/* Both stay mounted so switching tabs keeps the tree's expanded state. */}
+        {/* Tree and classes stay mounted so switching tabs keeps their state. */}
         <div className="panel-body" hidden={tab !== "tree"}>
           <ModelTree />
         </div>
         <div className="panel-body" hidden={tab !== "classes"}>
           <Categories />
         </div>
+        {tab === "library" && (
+          <div className="panel-body">
+            <Library />
+          </div>
+        )}
+        {tab === "issues" && (
+          <div className="panel-body">
+            <Issues />
+          </div>
+        )}
       </aside>
 
       <main
@@ -70,6 +94,7 @@ export default function App() {
         <div className="panel-body">
           <Properties />
         </div>
+        <Notes />
       </aside>
     </div>
   );

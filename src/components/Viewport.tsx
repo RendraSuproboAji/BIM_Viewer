@@ -3,6 +3,7 @@ import { Canvas, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { select } from "../bim/actions";
+import { registerControls } from "../bim/camera";
 import { engine } from "../bim/engine";
 import { useViewer } from "../bim/store";
 
@@ -69,9 +70,11 @@ function Bim() {
     const onRest = () => void engine.update(true);
     c.addEventListener("update", onMove);
     c.addEventListener("rest", onRest);
+    registerControls(c);
     return () => {
       c.removeEventListener("update", onMove);
       c.removeEventListener("rest", onRest);
+      registerControls(null);
     };
   }, []);
 

@@ -6,19 +6,26 @@
   "scripts": {
     "postinstall": "node scripts/copy-wasm.mjs",
     "predev": "node scripts/copy-wasm.mjs",
-    "dev": "vite",
+    "dev": "concurrently -n web,api -c cyan,magenta \"vite\" \"tsx watch server/src/index.ts\"",
+    "dev:web": "vite",
+    "dev:api": "tsx watch server/src/index.ts",
     "prebuild": "node scripts/copy-wasm.mjs",
     "build": "tsc -b && vite build",
+    "start": "tsx server/src/index.ts",
+    "test": "node --import tsx --test server/test/*.test.ts",
     "lint": "oxlint",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p server",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fastify/static": "^10.1.4",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.8.1",
     "@thatopen/components": "^3.4.8",
     "@thatopen/fragments": "^3.4.7",
+    "better-sqlite3": "^13.0.3",
     "camera-controls": "^3.1.2",
+    "fastify": "^5.12.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "three": "^0.186.1",
@@ -26,13 +33,19 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
     "oxlint": "^1.81.0",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
+  },
+  "engines": {
+    "node": ">=20.19"
   }
 }

@@ -7,6 +7,8 @@ export interface ModelInfo {
   id: string;
   name: string;
   visible: boolean;
+  /** Id in the server-side model library, once saved or when opened from it. */
+  libraryId?: string;
 }
 
 export type FitTarget = "all" | "selection" | { modelId: string; localIds: number[] };
@@ -27,12 +29,16 @@ interface ViewerState {
   hiddenClasses: Set<string>;
   /** Bumped on every item visibility change so panels can re-read it. */
   visibilityVersion: number;
+  /** Bumped when library data (models, views, notes) changes on the server. */
+  libraryVersion: number;
   /** Increment to ask the scene to frame everything, the selection, or specific items. */
   fitRequest: { n: number; target: FitTarget };
 
   addModel: (m: ModelInfo) => void;
   removeModel: (id: string) => void;
   setModelVisible: (id: string, visible: boolean) => void;
+  setLibraryId: (id: string, libraryId: string) => void;
+  bumpLibrary: () => void;
   select: (s: Selection | null) => void;
   setLoading: (l: ViewerState["loading"]) => void;
   setError: (e: string | null) => void;
@@ -52,6 +58,7 @@ export const useViewer = create<ViewerState>((set) => ({
   ghost: false,
   hiddenClasses: new Set(HIDDEN_BY_DEFAULT),
   visibilityVersion: 0,
+  libraryVersion: 0,
   fitRequest: { n: 0, target: "all" },
 
   addModel: (m) => set((s) => ({ models: [...s.models, m] })),
@@ -62,6 +69,9 @@ export const useViewer = create<ViewerState>((set) => ({
     })),
   setModelVisible: (id, visible) =>
     set((s) => ({ models: s.models.map((m) => (m.id === id ? { ...m, visible } : m)) })),
+  setLibraryId: (id, libraryId) =>
+    set((s) => ({ models: s.models.map((m) => (m.id === id ? { ...m, libraryId } : m)), libraryVersion: s.libraryVersion + 1 })),
+  bumpLibrary: () => set((s) => ({ libraryVersion: s.libraryVersion + 1 })),
   select: (selection) => set({ selection }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
