@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-server
+public/web-ifc
+server/data
+e2e
+.git
+.github
+*.log
+*.local

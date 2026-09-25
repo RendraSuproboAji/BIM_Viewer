@@ -28,3 +28,8 @@ public/web-ifc
 
 # SQLite database and uploaded models
 server/data
+
+# Browser E2E output and downloaded fixtures
+e2e/.output
+e2e/.cache
+dist-server
