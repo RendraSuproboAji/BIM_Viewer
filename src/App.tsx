@@ -22,7 +22,13 @@ export default function App() {
           <button className={tab === "tree" ? "active" : ""} onClick={() => setTab("tree")}>Spatial tree</button>
           <button className={tab === "classes" ? "active" : ""} onClick={() => setTab("classes")}>Classes</button>
         </nav>
-        <div className="panel-body">{tab === "tree" ? <ModelTree /> : <Categories />}</div>
+        {/* Both stay mounted so switching tabs keeps the tree's expanded state. */}
+        <div className="panel-body" hidden={tab !== "tree"}>
+          <ModelTree />
+        </div>
+        <div className="panel-body" hidden={tab !== "classes"}>
+          <Categories />
+        </div>
       </aside>
 
       <main
@@ -31,7 +37,10 @@ export default function App() {
           e.preventDefault();
           setDragging(true);
         }}
-        onDragLeave={() => setDragging(false)}
+        onDragLeave={(e) => {
+          // Ignore leave events fired when moving over child elements.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        }}
         onDrop={async (e) => {
           e.preventDefault();
           setDragging(false);

@@ -10,7 +10,7 @@ export function Viewport() {
   return (
     <Canvas
       className="viewport"
-      camera={{ position: [30, 25, 30], fov: 45, near: 0.1, far: 5000 }}
+      camera={{ position: [30, 25, 30], fov: 45, near: 0.05, far: 100000 }}
       gl={{ antialias: true, logarithmicDepthBuffer: true }}
       onCreated={({ gl }) => gl.setClearColor("#1d2126")}
     >
@@ -81,7 +81,11 @@ function Bim() {
     void (async () => {
       const box = new THREE.Box3();
       const { selection } = useViewer.getState();
-      if (fitRequest.target === "selection" && selection) {
+      const target = fitRequest.target;
+      if (typeof target === "object") {
+        const model = engine.getModel(target.modelId);
+        if (model) box.union(await model.getMergedBox(target.localIds));
+      } else if (target === "selection" && selection) {
         const model = engine.getModel(selection.modelId);
         if (model) box.union(await model.getMergedBox([selection.localId]));
       } else {

@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
+import { ALL_PRODUCT_CLASSES, EXTRA_DATA_CLASSES, EXTRA_RELATIONS } from "./ifc-classes";
 // Vite resolves this to a served URL for the Fragments web worker.
 import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
 
@@ -50,6 +51,7 @@ class BimEngine {
       processData: {
         progressCallback: (progress: number) => onProgress?.(progress),
       },
+      instanceCallback: includeEverything,
     });
   }
 
@@ -67,17 +69,37 @@ class BimEngine {
 
   async disposeModel(modelId: string) {
     await this.fragments.core.disposeModel(modelId);
+    releaseId(modelId);
   }
 
-  /** Raycasts every loaded model and returns the closest hit. */
+  /** Raycasts every visible model and returns the closest hit. */
   async pick(camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, dom: HTMLCanvasElement, clientX: number, clientY: number) {
     const mouse = new THREE.Vector2(clientX, clientY);
     let best: { modelId: string; hit: FRAGS.RaycastResult } | null = null;
     for (const [modelId, model] of this.fragments.list) {
+      // Hidden models stay in the worker, so they would still be hit.
+      if (!model.object.visible) continue;
       const hit = await model.raycast({ camera, mouse, dom });
       if (hit && (!best || hit.distance < best.hit.distance)) best = { modelId, hit };
     }
     return best;
+  }
+}
+
+/**
+ * That Open only converts a curated subset of IFC classes by default, which
+ * silently drops e.g. IfcDistributionBoard, IfcLiquidTerminal, IfcSpatialZone,
+ * IFC2X3 IfcElectricalElement, and non-single-value properties. Widen the
+ * importer to every physical class of every schema plus the data MEP and
+ * architecture workflows need (systems, openings/fillings, classifications).
+ */
+function includeEverything(importer: FRAGS.IfcImporter) {
+  for (const id of ALL_PRODUCT_CLASSES) importer.classes.elements.add(id);
+  for (const id of EXTRA_DATA_CLASSES) {
+    if (!importer.classes.elements.has(id)) importer.classes.abstract.add(id);
+  }
+  for (const [rel, forRelating, forRelated] of EXTRA_RELATIONS) {
+    importer.relations.set(rel, { forRelating, forRelated });
   }
 }
 
@@ -90,7 +112,14 @@ function uniqueId(name: string) {
   return id;
 }
 
+function releaseId(id: string) {
+  usedIds.delete(id);
+}
+
 export const engine = new BimEngine();
+
+// Handy for debugging from the browser console during development.
+if (import.meta.env.DEV) (window as unknown as { __bim: BimEngine }).__bim = engine;
 
 export const HIGHLIGHT: FRAGS.MaterialDefinition = {
   color: new THREE.Color("#ffb020"),

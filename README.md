@@ -9,8 +9,9 @@ An experimental web BIM viewer for IFC models, built with
 - Open **IFC** (converted in the browser) or **.frag** (That Open Fragments) files: file picker, drag & drop, or the built-in sample
 - Multiple models side by side, with per-model show/hide, remove, and **export to .frag**, which reloads much faster than IFC
 - **Spatial tree** (Project → Site → Building → Storey → elements) with per-node visibility and click-to-select/zoom
-- **IFC classes** panel with element counts and per-class visibility
-- Click-to-pick in 3D with highlight, plus a **properties panel** showing attributes, property sets, quantity sets, material, and container
+- **Every IFC class** in IFC2x3, IFC4 and IFC4.3 is imported: architecture, structure, MEP, spaces/zones, openings and infrastructure (see below)
+- **IFC classes** panel grouped by discipline (Architecture / Structure / MEP / Spaces & zones / Openings / Infrastructure) with element counts and per-class or per-discipline visibility. Spaces, zones and openings start hidden.
+- Click-to-pick in 3D with highlight, plus a **properties panel** showing attributes, type, property sets (single, enumerated, bounded, list, table, reference and complex properties), quantity sets, materials, classifications, **MEP systems**, openings/fillings, container, and parts
 - Isolate / hide / show all, zoom to selection, fit all, **X-ray** (ghost) mode
 - **Section plane** on X / Y / Z with a position slider and flip
 - Orbit/pan/zoom camera, infinite grid, and an axis gizmo
@@ -32,6 +33,26 @@ We don't use That Open's `World`/`SimpleRenderer`. Each loaded `FragmentsModel.o
 is added to the R3F scene and bound to the R3F camera (`model.useCamera`), and
 `fragments.core.update()` runs whenever the camera moves or comes to rest.
 
+## IFC class coverage
+
+That Open's IFC importer only converts a curated list of classes by default. That list silently drops, for example,
+`IfcDistributionBoard`, `IfcLiquidTerminal`, `IfcElectricFlowTreatmentDevice`, `IfcSpatialZone`, `IfcVibrationDamper`,
+the IFC2x3 MEP classes `IfcElectricalElement`, `IfcEquipmentElement` and `IfcElectricDistributionPoint`, every property
+kind except `IfcPropertySingleValue`, MEP systems, and classification references.
+
+`src/bim/ifc-classes.ts` builds the full list from web-ifc's own schema inheritance tables, so nothing is hand-maintained:
+
+- **Geometry:** every `IfcProduct` subtype in all three schemas (207 classes). The only exclusions are alignments,
+  which That Open processes separately, and structural-analysis items (loads, reactions, idealised members), which are analytical rather than physical.
+- **Data:** every `IfcTypeObject` (incl. IFC2x3 `IfcDoorStyle`/`IfcWindowStyle`), `IfcProperty`, `IfcPropertySetDefinition`,
+  `IfcPhysicalQuantity`, `IfcGroup` (systems, circuits, zones) and classification subtype.
+- **Relations:** systems (`IfcRelAssignsToGroup`, `IfcRelServicesBuildings`), ports and flow controls (MEP),
+  voids/fills/projections/coverings/space boundaries (architecture), and classifications, on top of That Open's defaults.
+
+It was verified against buildingSMART's
+[Sample-Test-Files](https://github.com/buildingSMART/Sample-Test-Files) "Simple-Scene" models (Architecture, HVAC,
+Structural, Electrical, Plumbing in IFC2x3, IFC4 and IFC4.3), plus variants using the classes and property kinds above.
+
 ## Getting started
 
 Requires Node 20+.
@@ -51,6 +72,7 @@ or open/drop your own `.ifc` / `.frag` file.
 ```
 src/
   bim/engine.ts        That Open setup (FragmentsManager, IfcLoader) + picking
+  bim/ifc-classes.ts   full IFC class catalogue, disciplines, extra relations
   bim/actions.ts       load / select / isolate / hide / x-ray / export
   bim/store.ts         zustand store
   components/

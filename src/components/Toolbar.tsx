@@ -36,7 +36,7 @@ export function Toolbar() {
         <button disabled={!selection} onClick={() => requestFit("selection")}>Zoom to selection</button>
         <button disabled={!selection} onClick={isolateSelection}>Isolate</button>
         <button disabled={!selection} onClick={hideSelection}>Hide</button>
-        <button disabled={!hasModels} onClick={showAll}>Show all</button>
+        <button disabled={!hasModels} onClick={showAll} title="Show every element, including spaces and openings">Show all</button>
         <button disabled={!selection} onClick={() => select(null)}>Clear selection</button>
         <button className={ghost ? "active" : ""} disabled={!hasModels} onClick={() => setGhost(!ghost)}>
           X-ray

@@ -1,3 +1,4 @@
+import type { FragmentsModel } from "@thatopen/fragments";
 import { engine, HIGHLIGHT } from "./engine";
 import { useViewer, type Selection } from "./store";
 
@@ -25,7 +26,7 @@ export async function loadUrl(url: string) {
 }
 
 async function loadBuffer(buffer: ArrayBuffer, name: string) {
-  const { setLoading, setError, addModel, requestFit, ghost } = useViewer.getState();
+  const { setLoading, setError, addModel, requestFit, ghost, hiddenClasses } = useViewer.getState();
   const isFrag = /\.frag$/i.test(name);
   setLoading({ label: `${isFrag ? "Loading" : "Converting"} ${name}`, progress: 0 });
   try {
@@ -33,6 +34,9 @@ async function loadBuffer(buffer: ArrayBuffer, name: string) {
       ? await engine.loadFrag(buffer, name)
       : await engine.loadIfc(buffer, name, (p) => setLoading({ label: `Converting ${name}`, progress: p }));
     if (ghost) await model.setOpacity(undefined, GHOST_OPACITY);
+    // Apply the current class filter (spaces, openings... are hidden by default).
+    const hidden = await idsOfClasses(model, hiddenClasses);
+    if (hidden.length) await model.setVisible(hidden, false);
     addModel({ id: model.modelId, name, visible: true });
     requestFit("all");
   } catch (e) {
@@ -43,11 +47,22 @@ async function loadBuffer(buffer: ArrayBuffer, name: string) {
   }
 }
 
+async function idsOfClasses(model: FragmentsModel, classes: Iterable<string>) {
+  const patterns = [...classes].map((c) => new RegExp(`^${c}$`, "i"));
+  if (!patterns.length) return [];
+  return Object.values(await model.getItemsOfCategories(patterns)).flat();
+}
+
 export async function select(selection: Selection | null) {
   const { selection: previous, select: setSelection } = useViewer.getState();
   if (previous) await engine.getModel(previous.modelId)?.resetHighlight();
   setSelection(selection);
   if (selection) await engine.getModel(selection.modelId)?.highlight([selection.localId], HIGHLIGHT);
+  await engine.update(true);
+}
+
+async function visibilityChanged() {
+  useViewer.getState().bumpVisibility();
   await engine.update(true);
 }
 
@@ -61,6 +76,20 @@ export async function setModelVisible(modelId: string, visible: boolean) {
 
 export async function setItemsVisible(modelId: string, localIds: number[], visible: boolean) {
   await engine.getModel(modelId)?.setVisible(localIds, visible);
+  await visibilityChanged();
+}
+
+export async function setClassesVisible(classes: string[], visible: boolean) {
+  for (const model of engine.models.values()) {
+    const ids = await idsOfClasses(model, classes);
+    if (ids.length) await model.setVisible(ids, visible);
+  }
+  const next = new Set(useViewer.getState().hiddenClasses);
+  for (const c of classes) {
+    if (visible) next.delete(c);
+    else next.add(c);
+  }
+  useViewer.getState().setHiddenClasses(next);
   await engine.update(true);
 }
 
@@ -71,7 +100,7 @@ export async function isolateSelection() {
     await model.setVisible(undefined, false);
     if (id === selection.modelId) await model.setVisible([selection.localId], true);
   }
-  await engine.update(true);
+  await visibilityChanged();
 }
 
 export async function hideSelection() {
@@ -79,11 +108,14 @@ export async function hideSelection() {
   if (!selection) return;
   await engine.getModel(selection.modelId)?.setVisible([selection.localId], false);
   await select(null);
+  await visibilityChanged();
 }
 
+/** Shows every item of every model, including classes hidden by default. */
 export async function showAll() {
   for (const model of engine.models.values()) await model.resetVisible();
   for (const m of useViewer.getState().models) if (!m.visible) await setModelVisible(m.id, true);
+  useViewer.getState().setHiddenClasses(new Set());
   await engine.update(true);
 }
 
@@ -97,6 +129,7 @@ export async function setGhost(ghost: boolean) {
 }
 
 export async function removeModel(modelId: string) {
+  if (useViewer.getState().selection?.modelId === modelId) await select(null);
   await engine.disposeModel(modelId);
   useViewer.getState().removeModel(modelId);
   await engine.update(true);
@@ -111,7 +144,8 @@ export async function exportFrag(modelId: string) {
   a.href = url;
   a.download = `${modelId}.frag`;
   a.click();
-  URL.revokeObjectURL(url);
+  // Revoking synchronously can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 function errorMessage(e: unknown) {

@@ -1,5 +1,5 @@
-import type { SpatialTreeItem } from "@thatopen/fragments";
-import { useEffect, useState } from "react";
+import type { FragmentsModel, SpatialTreeItem } from "@thatopen/fragments";
+import { useEffect, useMemo, useState } from "react";
 import { exportFrag, removeModel, select, setItemsVisible, setModelVisible } from "../bim/actions";
 import { engine } from "../bim/engine";
 import { prettyCategory } from "../bim/format";
@@ -44,44 +44,64 @@ function ModelNode({ info }: { info: ModelInfo }) {
   );
 }
 
-const nameCache = new Map<string, string>();
+// Keyed by model instance so a removed-then-reloaded model never shows stale names.
+const nameCache = new WeakMap<FragmentsModel, Map<number, string>>();
 
-function TreeNode({ modelId, node, depth }: { modelId: string; node: SpatialTreeItem; depth: number }) {
+function TreeNode(props: { modelId: string; node: SpatialTreeItem; depth: number; parentCategory?: string | null }) {
+  const { modelId, node, depth } = props;
   const [open, setOpen] = useState(depth < 3);
-  const [visible, setVisible] = useState(true);
+  const [visibility, setVisibility] = useState<"all" | "some" | "none">("all");
   const [name, setName] = useState<string | null>(null);
   const selection = useViewer((s) => s.selection);
+  const visibilityVersion = useViewer((s) => s.visibilityVersion);
   const children = node.children ?? [];
   const isSelected = selection?.modelId === modelId && selection.localId === node.localId;
+  const ids = useMemo(() => collectIds(node), [node]);
 
   useEffect(() => {
-    if (node.localId === null) return;
-    const key = `${modelId}:${node.localId}`;
-    const cached = nameCache.get(key);
+    const model = engine.getModel(modelId);
+    if (node.localId === null || !model) return;
+    let names = nameCache.get(model);
+    if (!names) nameCache.set(model, (names = new Map()));
+    const cached = names.get(node.localId);
     if (cached !== undefined) return setName(cached);
-    engine
-      .getModel(modelId)
-      ?.getItemsData([node.localId], { attributesDefault: false, attributes: ["Name", "LongName"] })
-      .then(([data]) => {
-        const attr = (data?.LongName ?? data?.Name) as { value?: unknown } | undefined;
-        const value = attr?.value != null ? String(attr.value) : "";
-        nameCache.set(key, value);
-        setName(value);
-      });
+    const localId = node.localId;
+    model.getItemsData([localId], { attributesDefault: false, attributes: ["Name", "LongName"] }).then(([data]) => {
+      const attr = (data?.LongName ?? data?.Name) as { value?: unknown } | undefined;
+      const value = attr?.value != null ? String(attr.value) : "";
+      names.set(localId, value);
+      setName(value);
+    });
   }, [modelId, node.localId]);
 
-  const category = prettyCategory(node.category);
+  // Re-read visibility whenever anything (tree, classes, isolate, show all) changes it.
+  useEffect(() => {
+    let cancelled = false;
+    engine
+      .getModel(modelId)
+      ?.getVisible(ids)
+      .then((flags) => {
+        if (cancelled) return;
+        const shown = flags.filter(Boolean).length;
+        setVisibility(shown === flags.length ? "all" : shown === 0 ? "none" : "some");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modelId, ids, visibilityVersion]);
+
+  // Element nodes usually sit under a category group node that carries their class.
+  const category = prettyCategory(node.category ?? (node.localId !== null ? props.parentCategory ?? null : null));
   const label = node.localId === null ? `${category} (${children.length})` : name || category || `#${node.localId}`;
 
-  const toggleVisible = async () => {
-    await setItemsVisible(modelId, collectIds(node), !visible);
-    setVisible(!visible);
-  };
+  // Partly hidden nodes become fully visible first.
+  const toggleVisible = () => setItemsVisible(modelId, ids, visibility !== "all");
 
   const onSelect = async () => {
     if (node.localId === null) return setOpen(!open);
     await select({ modelId, localId: node.localId });
-    useViewer.getState().requestFit("selection");
+    // Storeys, buildings etc. have no geometry of their own: frame their contents.
+    useViewer.getState().requestFit({ modelId, localIds: ids });
   };
 
   return (
@@ -92,11 +112,11 @@ function TreeNode({ modelId, node, depth }: { modelId: string; node: SpatialTree
           {label}
           {node.localId !== null && name && category && <span className="muted"> · {category}</span>}
         </span>
-        <IconButton title={visible ? "Hide" : "Show"} onClick={toggleVisible}>
-          {visible ? "👁" : "◌"}
+        <IconButton title={visibility === "all" ? "Hide" : visibility === "some" ? "Partly hidden – show all" : "Show"} onClick={toggleVisible}>
+          {visibility === "all" ? "👁" : visibility === "some" ? "◐" : "◌"}
         </IconButton>
       </div>
-      {open && children.map((c, i) => <TreeNode key={i} modelId={modelId} node={c} depth={depth + 1} />)}
+      {open && children.map((c, i) => <TreeNode key={i} modelId={modelId} node={c} depth={depth + 1} parentCategory={node.localId === null ? node.category : null} />)}
     </>
   );
 }
