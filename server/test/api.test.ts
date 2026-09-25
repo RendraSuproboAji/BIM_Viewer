@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -159,6 +159,14 @@ describe("views", () => {
   test("validates the body", async () => {
     const res = await app.inject({ method: "POST", url: "/api/views", payload: { name: "" } });
     assert.equal(res.statusCode, 400);
+    const badState = await app.inject({
+      method: "POST",
+      url: "/api/views",
+      payload: { name: "x", state: { ...state, camera: { position: [1, 2], target: [0, 0, 0] } } },
+    });
+    assert.equal(badState.statusCode, 400);
+    const badAxis = await app.inject({ method: "POST", url: "/api/views", payload: { name: "x", state: { ...state, section: { ...state.section, axis: "w" } } } });
+    assert.equal(badAxis.statusCode, 400);
   });
 });
 
@@ -196,6 +204,33 @@ describe("notes", () => {
       payload: { modelId: "00000000-0000-0000-0000-000000000000", elementGuid: "x", title: "t" },
     });
     assert.equal(res.statusCode, 404);
+  });
+});
+
+describe("models: missing file", () => {
+  test("returns 404 when the .frag was removed from disk", async () => {
+    const model = await uploadModel();
+    rmSync(join(dir, "models", `${model.id}.frag`));
+    assert.equal((await app.inject(`/api/models/${model.id}/file`)).statusCode, 404);
+  });
+});
+
+describe("static web app", () => {
+  test("serves index for app routes, 404 for missing files and API routes", async () => {
+    const staticDir = mkdtempSync(join(tmpdir(), "bim-static-"));
+    writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>BIM</title>");
+    const web = await buildApp({ dbFile: ":memory:", dataDir: staticDir, staticDir });
+    try {
+      assert.equal((await web.inject("/")).statusCode, 200);
+      const route = await web.inject("/projects/42");
+      assert.equal(route.statusCode, 200);
+      assert.match(route.body, /<title>BIM<\/title>/);
+      assert.equal((await web.inject("/assets/missing.js")).statusCode, 404);
+      assert.equal((await web.inject("/api/nope")).statusCode, 404);
+    } finally {
+      await web.close();
+      rmSync(staticDir, { recursive: true, force: true });
+    }
   });
 });
 

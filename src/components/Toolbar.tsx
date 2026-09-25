@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { hideSelection, isolateSelection, loadFile, loadUrl, SAMPLE_IFC_URL, select, setGhost, showAll } from "../bim/actions";
+import { hideSelection, isolateSelection, loadFiles, loadUrl, SAMPLE_IFC_URL, select, setGhost, showAll } from "../bim/actions";
 import { useViewer, type SectionAxis } from "../bim/store";
 
 export function Toolbar() {
@@ -25,7 +25,7 @@ export function Toolbar() {
           multiple
           hidden
           onChange={async (e) => {
-            for (const file of Array.from(e.target.files ?? [])) await loadFile(file);
+            await loadFiles(Array.from(e.target.files ?? []));
             e.target.value = "";
           }}
         />

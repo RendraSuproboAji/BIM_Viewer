@@ -90,7 +90,14 @@ function Bim() {
         if (model) box.union(await model.getMergedBox(target.localIds));
       } else if (target === "selection" && selection) {
         const model = engine.getModel(selection.modelId);
-        if (model) box.union(await model.getMergedBox([selection.localId]));
+        if (model) {
+          box.union(await model.getMergedBox([selection.localId]));
+          // Spatial elements (storeys, buildings) have no geometry: frame their contents.
+          if (box.isEmpty()) {
+            const children = await model.getItemsChildren([selection.localId]);
+            if (children.length) box.union(await model.getMergedBox(children));
+          }
+        }
       } else {
         for (const model of engine.models.values()) if (model.object.visible) box.union(model.box);
       }
@@ -98,13 +105,15 @@ function Bim() {
     })();
   }, [fitRequest]);
 
-  // Section plane driven by the store.
+  // Section plane driven by the store. Applied to fragments materials only
+  // (local clipping), so the grid and axis gizmo are never cut.
   const plane = useMemo(() => new THREE.Plane(), []);
   useEffect(() => {
+    gl.localClippingEnabled = true;
     const box = new THREE.Box3();
     for (const model of engine.models.values()) box.union(model.box);
     if (!section.enabled || box.isEmpty()) {
-      gl.clippingPlanes = [];
+      engine.setClippingPlanes([]);
     } else {
       const axisIndex = { x: 0, y: 1, z: 2 }[section.axis];
       const min = box.min.getComponent(axisIndex);
@@ -113,10 +122,7 @@ function Bim() {
       const normal = new THREE.Vector3().setComponent(axisIndex, section.flipped ? 1 : -1);
       // Keeps the side the normal points to: points where normal·p + constant >= 0.
       plane.set(normal, section.flipped ? -at : at);
-      gl.clippingPlanes = [plane];
-    }
-    for (const model of engine.models.values()) {
-      model.getClippingPlanesEvent = () => gl.clippingPlanes;
+      engine.setClippingPlanes([plane]);
     }
     void engine.update(true);
   }, [section, models, gl, plane]);

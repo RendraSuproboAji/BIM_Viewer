@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { loadFile } from "./bim/actions";
+import { loadFiles } from "./bim/actions";
 import { useViewer } from "./bim/store";
 import { Categories } from "./components/Categories";
 import { Issues } from "./components/Issues";
@@ -68,9 +68,7 @@ export default function App() {
         onDrop={async (e) => {
           e.preventDefault();
           setDragging(false);
-          for (const file of Array.from(e.dataTransfer.files)) {
-            if (/\.(ifc|frag)$/i.test(file.name)) await loadFile(file);
-          }
+          await loadFiles(Array.from(e.dataTransfer.files));
         }}
       >
         <Viewport />

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync, mkdirSync } from "node:fs";
+import { rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
@@ -70,7 +70,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       }
       const id = randomUUID();
       await writeFile(modelFile(id), req.body);
-      q.insertModel.run({ id, name: req.query.name, file_name: req.query.fileName ?? `${req.query.name}.frag`, size: req.body.length });
+      try {
+        q.insertModel.run({ id, name: req.query.name, file_name: req.query.fileName ?? `${req.query.name}.frag`, size: req.body.length });
+      } catch (e) {
+        await rm(modelFile(id), { force: true }); // no orphaned files
+        throw e;
+      }
       return reply.code(201).send(toModel(q.getModel.get(id)));
     },
   );
@@ -81,8 +86,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   app.get<{ Params: { id: string } }>("/api/models/:id/file", { schema: { params: idParams } }, async (req, reply) => {
-    if (!q.getModel.get(req.params.id)) return reply.code(404).send({ error: "Model not found" });
-    return reply.type("application/octet-stream").send(await readFile(modelFile(req.params.id)));
+    const row = q.getModel.get(req.params.id);
+    const file = modelFile(req.params.id);
+    if (!row || !existsSync(file)) return reply.code(404).send({ error: "Model not found" });
+    // Streamed, so large models are never held in memory.
+    return reply.type("application/octet-stream").header("content-length", (await stat(file)).size).send(createReadStream(file));
   });
 
   app.delete<{ Params: { id: string } }>("/api/models/:id", { schema: { params: idParams } }, async (req, reply) => {
@@ -212,10 +220,34 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   // ---- Saved views ---------------------------------------------------------
 
+  const vec3 = { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 } as const;
   const viewBody = {
     type: "object",
     required: ["name", "state"],
-    properties: { name: { type: "string", minLength: 1, maxLength: 255 }, state: { type: "object" } },
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 255 },
+      // Validated fully: a malformed view would break the client when restored.
+      state: {
+        type: "object",
+        required: ["camera", "section", "hiddenClasses", "ghost", "models"],
+        properties: {
+          camera: { type: "object", required: ["position", "target"], properties: { position: vec3, target: vec3 } },
+          section: {
+            type: "object",
+            required: ["enabled", "axis", "offset", "flipped"],
+            properties: {
+              enabled: { type: "boolean" },
+              axis: { type: "string", enum: ["x", "y", "z"] },
+              offset: { type: "number", minimum: 0, maximum: 1 },
+              flipped: { type: "boolean" },
+            },
+          },
+          hiddenClasses: { type: "array", items: { type: "string", maxLength: 100 }, maxItems: 1000 },
+          ghost: { type: "boolean" },
+          models: { type: "array", items: ID, maxItems: 100 },
+        },
+      },
+    },
   } as const;
 
   app.get("/api/views", async () => q.listViews.all().map(toView));
@@ -337,9 +369,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   if (options.staticDir && existsSync(options.staticDir)) {
     await app.register(fastifyStatic, { root: options.staticDir });
-    app.setNotFoundHandler((req, reply) =>
-      req.url.startsWith("/api/") ? reply.code(404).send({ error: "Not found" }) : reply.sendFile("index.html"),
-    );
+    app.setNotFoundHandler((req, reply) => {
+      const path = req.url.split("?")[0];
+      // Client-side routes get the app; missing API routes and files (e.g. /assets/x.js) get a real 404.
+      if (req.method !== "GET" || path.startsWith("/api/") || /\.[a-z0-9]+$/i.test(path)) {
+        return reply.code(404).send({ error: "Not found" });
+      }
+      return reply.sendFile("index.html");
+    });
   }
 
   return app;

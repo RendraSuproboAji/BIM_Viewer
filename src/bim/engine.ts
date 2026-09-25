@@ -17,6 +17,8 @@ class BimEngine {
   readonly fragments: OBC.FragmentsManager;
   readonly ifcLoader: OBC.IfcLoader;
   private ifcReady: Promise<void> | null = null;
+  /** Section planes, applied per fragments material so the grid and gizmo stay unclipped. */
+  private clippingPlanes: THREE.Plane[] = [];
 
   constructor() {
     this.fragments = this.components.get(OBC.FragmentsManager);
@@ -24,6 +26,8 @@ class BimEngine {
 
     // Avoid z-fighting between coplanar faces of different elements.
     this.fragments.core.models.materials.list.onItemSet.add(({ value: material }) => {
+      // Materials created later (new models, highlights) inherit the current section.
+      material.clippingPlanes = this.clippingPlanes.length ? this.clippingPlanes : null;
       if ("isLodMaterial" in material && material.isLodMaterial) return;
       material.polygonOffset = true;
       material.polygonOffsetUnits = 1;
@@ -38,25 +42,45 @@ class BimEngine {
   }
 
   private setupIfc() {
-    this.ifcReady ??= this.ifcLoader.setup({
-      autoSetWasm: false,
-      wasm: { path: `${import.meta.env.BASE_URL}web-ifc/`, absolute: true },
-    });
+    this.ifcReady ??= this.ifcLoader
+      .setup({
+        autoSetWasm: false,
+        wasm: { path: `${import.meta.env.BASE_URL}web-ifc/`, absolute: true },
+      })
+      .catch((e) => {
+        // Don't cache a failed setup (e.g. WASM not reachable): let the next load retry.
+        this.ifcReady = null;
+        throw e;
+      });
     return this.ifcReady;
   }
 
   async loadIfc(buffer: ArrayBuffer, name: string, onProgress?: (p: number) => void) {
     await this.setupIfc();
-    return this.ifcLoader.load(new Uint8Array(buffer), true, uniqueId(name), {
-      processData: {
-        progressCallback: (progress: number) => onProgress?.(progress),
-      },
-      instanceCallback: includeEverything,
-    });
+    return withModelId(name, (id) =>
+      this.ifcLoader.load(new Uint8Array(buffer), true, id, {
+        processData: {
+          progressCallback: (progress: number) => onProgress?.(progress),
+        },
+        instanceCallback: includeEverything,
+      }),
+    );
   }
 
   async loadFrag(buffer: ArrayBuffer, name: string) {
-    return this.fragments.core.load(buffer, { modelId: uniqueId(name) });
+    return withModelId(name, (id) => this.fragments.core.load(buffer, { modelId: id }));
+  }
+
+  /** Applies section planes to every fragments material (current and future). */
+  setClippingPlanes(planes: THREE.Plane[]) {
+    const toggled = planes.length !== this.clippingPlanes.length;
+    this.clippingPlanes = planes;
+    for (const material of this.fragments.core.models.materials.list.values()) {
+      material.clippingPlanes = planes.length ? planes : null;
+      // Changing the number of planes changes the shader program.
+      if (toggled) material.needsUpdate = true;
+    }
+    for (const model of this.fragments.list.values()) model.getClippingPlanesEvent = () => this.clippingPlanes;
   }
 
   getModel(modelId: string) {
@@ -114,6 +138,17 @@ function uniqueId(name: string) {
 
 function releaseId(id: string) {
   usedIds.delete(id);
+}
+
+/** Reserves a unique model id for a load, releasing it again if the load fails. */
+async function withModelId<T>(name: string, load: (id: string) => Promise<T>) {
+  const id = uniqueId(name);
+  try {
+    return await load(id);
+  } catch (e) {
+    releaseId(id);
+    throw e;
+  }
 }
 
 export const engine = new BimEngine();

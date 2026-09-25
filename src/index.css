@@ -123,3 +123,4 @@ button.link { background: none; border: 0; padding: 2px 0; color: var(--accent);
 .icon.saved { color: #3fb950; opacity: 1; text-align: center; }
 code { background: var(--hover); padding: 1px 4px; border-radius: 4px; }
 .library p.small { margin: 4px 12px; }
+button.row.more { width: 100%; background: none; border: 0; border-radius: 0; color: var(--accent); text-align: left; }

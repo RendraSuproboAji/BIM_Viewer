@@ -9,20 +9,38 @@ import { useViewer } from "./store";
 
 const EXTRACT_BATCH = 250;
 
+// In-flight operations, so double clicks don't upload or open the same model twice.
+const saving = new Map<string, Promise<void>>();
+const opening = new Map<string, Promise<string | null>>();
+
 /** Uploads a loaded model to the library as .frag and stores its extracted BIM data. */
-export async function saveToLibrary(modelId: string) {
+export function saveToLibrary(modelId: string) {
+  let run = saving.get(modelId);
+  if (!run) {
+    run = doSave(modelId).finally(() => saving.delete(modelId));
+    saving.set(modelId, run);
+  }
+  return run;
+}
+
+async function doSave(modelId: string) {
   const { models, setLoading, setError, setLibraryId } = useViewer.getState();
   const info = models.find((m) => m.id === modelId);
   const model = engine.getModel(modelId);
-  if (!info || !model) return;
+  if (!info || !model || info.libraryId) return;
+  let uploadedId: string | null = null;
   try {
+    // Extract first: it is the step most likely to fail, and nothing is on the server yet.
+    const elements = await extractElements(model, (p) => setLoading({ label: `Extracting BIM data from ${info.name}`, progress: p }));
     setLoading({ label: `Uploading ${info.name}`, progress: 0 });
     const record = await api.uploadModel(info.name, await model.getBuffer(false));
-    const elements = await extractElements(model, (p) => setLoading({ label: `Extracting BIM data from ${info.name}`, progress: p }));
+    uploadedId = record.id;
     setLoading({ label: `Saving ${elements.length} elements`, progress: 1 });
     await api.saveElements(record.id, elements);
     setLibraryId(modelId, record.id);
   } catch (e) {
+    // Don't leave a half-saved library entry (file without element data) behind.
+    if (uploadedId) await api.deleteModel(uploadedId).catch(() => {});
     setError(`Could not save ${info.name} to the library: ${errorMessage(e)}`);
   } finally {
     setLoading(null);
@@ -42,9 +60,18 @@ export async function extractElements(model: FragmentsModel, onProgress?: (p: nu
 }
 
 /** Opens a library model (or returns it if already open). Resolves to the viewer's model id. */
-export async function openFromLibrary(record: Pick<ModelRecord, "id" | "name">, fit = true) {
+export function openFromLibrary(record: Pick<ModelRecord, "id" | "name">, fit = true): Promise<string | null> {
   const open = useViewer.getState().models.find((m) => m.libraryId === record.id);
-  if (open) return open.id;
+  if (open) return Promise.resolve(open.id);
+  let run = opening.get(record.id);
+  if (!run) {
+    run = doOpen(record, fit).finally(() => opening.delete(record.id));
+    opening.set(record.id, run);
+  }
+  return run;
+}
+
+async function doOpen(record: Pick<ModelRecord, "id" | "name">, fit: boolean) {
   const { setLoading, setError } = useViewer.getState();
   setLoading({ label: `Downloading ${record.name}`, progress: 0 });
   try {
@@ -101,10 +128,13 @@ export function captureView(): ViewState | null {
 
 export async function applyView(state: ViewState) {
   const library = state.models.length ? await api.listModels() : [];
+  let missing = 0;
   for (const id of state.models) {
     const record = library.find((m) => m.id === id);
     if (record) await openFromLibrary(record, false);
+    else missing++;
   }
+  if (missing) useViewer.getState().setError(`${missing} model(s) of this view are no longer in the library`);
   await showAll();
   if (state.hiddenClasses.length) await setClassesVisible(state.hiddenClasses, false);
   await setGhost(state.ghost);

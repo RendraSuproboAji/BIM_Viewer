@@ -7,8 +7,13 @@ const GHOST_OPACITY = 0.12;
 export const SAMPLE_IFC_URL =
   "https://raw.githubusercontent.com/ThatOpen/engine_components/main/resources/ifc/school_str.ifc";
 
-export async function loadFile(file: File) {
-  await loadBuffer(await file.arrayBuffer(), file.name);
+export const SUPPORTED_FILES = /\.(ifc|frag)$/i;
+
+export async function loadFiles(files: Iterable<File>) {
+  const all = [...files];
+  const skipped = all.filter((f) => !SUPPORTED_FILES.test(f.name)).map((f) => f.name);
+  if (skipped.length) useViewer.getState().setError(`Only .ifc and .frag files can be opened (skipped ${skipped.join(", ")})`);
+  for (const file of all) if (SUPPORTED_FILES.test(file.name)) await loadBuffer(await file.arrayBuffer(), file.name);
 }
 
 export async function loadUrl(url: string) {
@@ -63,7 +68,17 @@ async function idsOfClasses(model: FragmentsModel, classes: Iterable<string>) {
   return Object.values(await model.getItemsOfCategories(patterns)).flat();
 }
 
-export async function select(selection: Selection | null) {
+// Selections run one after another: overlapping calls (fast clicks) could
+// otherwise reset the wrong highlight and leave two elements highlighted.
+let selectQueue: Promise<void> = Promise.resolve();
+
+export function select(selection: Selection | null) {
+  const run = selectQueue.then(() => applySelection(selection));
+  selectQueue = run.catch(() => {});
+  return run;
+}
+
+async function applySelection(selection: Selection | null) {
   const { selection: previous, select: setSelection } = useViewer.getState();
   if (previous) await engine.getModel(previous.modelId)?.resetHighlight();
   setSelection(selection);
