@@ -3,6 +3,7 @@ import { HIDDEN_BY_DEFAULT } from "./ifc-classes";
 import type { Project, User } from "../../shared/api";
 import type { ClashRun } from "./clash-run";
 import type { ColorByState } from "./colorby";
+import type { CompareRun } from "./compare-run";
 import type { Measurement, MeasureTool, Point } from "./measure";
 
 export type SectionAxis = "x" | "y" | "z";
@@ -46,6 +47,8 @@ interface ViewerState {
   measurements: Measurement[];
   /** Points of the measurement being drawn. */
   draft: Point[];
+  /** Active version comparison, if any. */
+  compareRun: CompareRun | null;
   /** Last clash detection run and its results. */
   clashRun: ClashRun | null;
   /** Active colour-by-property (with its legend), if any. */
@@ -101,6 +104,7 @@ export const useViewer = create<ViewerState>((set) => ({
   libraryVersion: 0,
   colorBy: null,
   clashRun: null,
+  compareRun: null,
   activeIssueId: null,
   newIssueOpen: false,
   tool: "select",

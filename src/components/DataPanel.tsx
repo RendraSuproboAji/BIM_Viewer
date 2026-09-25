@@ -6,6 +6,7 @@ import { engine, HIGHLIGHT } from "../bim/engine";
 import { openModelElements } from "../bim/model-data";
 import { useViewer } from "../bim/store";
 import { listFields, takeoff, type FieldInfo, type FieldKey, type ModelElements, type TakeoffRow } from "../bim/takeoff";
+import { ComparePanel } from "./ComparePanel";
 import { Modal } from "./ProjectMenu";
 
 /** Element data of the open models, re-read when models change. */
@@ -49,6 +50,7 @@ export function DataPanel() {
           </button>
         </div>
       </section>
+      <ComparePanel />
       {takeoffOpen && <TakeoffDialog data={data} onClose={() => setTakeoffOpen(false)} />}
     </div>
   );

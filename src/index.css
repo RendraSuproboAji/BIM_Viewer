@@ -219,3 +219,15 @@ label.check-row.small { font-size: 12px; display: flex; gap: 6px; align-items: c
 .clash-dot.b { background: #2f81f7; }
 .clash-row .label { white-space: normal; }
 button.link.small { font-size: 12px; }
+
+/* ---- Compare ---- */
+.compare-pick { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); flex: 1; min-width: 0; }
+.compare-chips { gap: 4px; }
+.chip-button { display: inline-flex; gap: 4px; align-items: center; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+.chip-button.active { border-color: var(--accent); }
+.compare-list { max-height: 360px; overflow: auto; }
+.diff-table { width: calc(100% - 24px); margin: 2px 12px 6px; border-collapse: collapse; font-size: 11px; }
+.diff-table th { text-align: left; color: var(--muted); font-weight: normal; padding: 2px 4px; width: 40%; word-break: break-word; }
+.diff-table td { padding: 2px 4px; word-break: break-word; }
+.diff-table td.before { color: #ff8a80; text-decoration: line-through; }
+.diff-table td.after { color: #7ee787; }
