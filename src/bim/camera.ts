@@ -7,6 +7,8 @@ let controls: CameraControls | null = null;
 
 export function registerControls(c: CameraControls | null) {
   controls = c;
+  // Handy for debugging from the browser console during development.
+  if (import.meta.env.DEV) (window as unknown as { __bimControls: CameraControls | null }).__bimControls = c;
 }
 
 export function getCameraState(): CameraState | null {
@@ -18,4 +20,29 @@ export function getCameraState(): CameraState | null {
 
 export async function setCameraState(state: CameraState) {
   await controls?.setLookAt(...state.position, ...state.target, true);
+}
+
+/** Renderer, scene and camera of the canvas, for snapshots and BCF viewpoints. */
+export interface RendererHandle {
+  gl: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  camera: THREE.Camera;
+}
+let renderer: RendererHandle | null = null;
+
+export function registerRenderer(handle: RendererHandle | null) {
+  renderer = handle;
+}
+
+export function getRenderer() {
+  return renderer;
+}
+
+export async function setCameraLookAt(position: THREE.Vector3, target: THREE.Vector3, up?: THREE.Vector3) {
+  if (!controls) return;
+  if (up && up.lengthSq() > 0) {
+    controls.camera.up.copy(up).normalize();
+    controls.updateCameraUp();
+  }
+  await controls.setLookAt(position.x, position.y, position.z, target.x, target.y, target.z, true);
 }

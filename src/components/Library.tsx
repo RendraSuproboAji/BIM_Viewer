@@ -5,11 +5,13 @@ import { useApi } from "../api/useApi";
 import { errorMessage } from "../bim/actions";
 import { prettyCategory } from "../bim/format";
 import { applyView, captureView, deleteFromLibrary, goToElement, openFromLibrary } from "../bim/library";
+import { useCanEdit } from "../bim/session";
 import { useViewer } from "../bim/store";
 
 /** Server-side model library, saved views and element search. */
 export function Library() {
   const health = useApi(() => api.health());
+  const projectId = useViewer((s) => s.projectId);
   if (health.error) {
     return (
       <p className="empty">
@@ -19,17 +21,19 @@ export function Library() {
       </p>
     );
   }
+  if (!projectId) return <p className="empty">Open or create a project (toolbar) to use the library.</p>;
   return (
     <div className="library">
-      <Models />
-      <Views />
-      <Search />
+      <Models projectId={projectId} />
+      <Views projectId={projectId} />
+      <Search projectId={projectId} />
     </div>
   );
 }
 
-function Models() {
-  const models = useApi(() => api.listModels());
+function Models({ projectId }: { projectId: string }) {
+  const models = useApi(() => api.listModels(projectId), [projectId]);
+  const canEdit = useCanEdit();
   const open = useViewer((s) => s.models);
   const setError = useViewer((s) => s.setError);
 
@@ -54,14 +58,14 @@ function Models() {
               <a className="button" href={api.elementsCsvUrl(m.id)} download>
                 CSV
               </a>
-              <button
+              {canEdit && <button
                 onClick={async () => {
-                  if (!confirm(`Delete "${m.name}" and its notes from the library?`)) return;
+                  if (!confirm(`Delete "${m.name}" from the library? Issues keep their elements.`)) return;
                   await deleteFromLibrary(m).catch((e) => setError(errorMessage(e)));
                 }}
               >
                 Delete
-              </button>
+              </button>}
             </div>
           </div>
         );
@@ -70,8 +74,9 @@ function Models() {
   );
 }
 
-function Views() {
-  const views = useApi(() => api.listViews());
+function Views({ projectId }: { projectId: string }) {
+  const views = useApi(() => api.listViews(projectId), [projectId]);
+  const canEdit = useCanEdit();
   const [name, setName] = useState("");
   const { bumpLibrary, setError } = useViewer.getState();
   const hasModels = useViewer((s) => s.models.length > 0);
@@ -82,7 +87,7 @@ function Views() {
     const unsaved = useViewer.getState().models.filter((m) => !m.libraryId).length;
     try {
       if (existing) await api.updateView(existing.id, existing.name, state);
-      else await api.createView(name.trim() || `View ${new Date().toLocaleString()}`, state);
+      else await api.createView(projectId, name.trim() || `View ${new Date().toLocaleString()}`, state);
       setName("");
       bumpLibrary();
       if (unsaved) setError(`Saved. ${unsaved} open model(s) are not in the library, so the view won't reopen them.`);
@@ -94,7 +99,7 @@ function Views() {
   return (
     <section>
       <h3>Saved views</h3>
-      <form
+      {canEdit && <form
         className="inline-form"
         onSubmit={(e) => {
           e.preventDefault();
@@ -105,23 +110,23 @@ function Views() {
         <button type="submit" disabled={!hasModels}>
           Save view
         </button>
-      </form>
+      </form>}
       {views.data?.map((v) => (
         <div key={v.id} className="row">
           <span className="label" onClick={() => applyView(v.state)} title="Restore this view">
             {v.name}
             <span className="muted"> · {v.state.models.length} model(s)</span>
           </span>
-          <button className="icon" title="Overwrite with the current view" onClick={() => save(v)}>
-            ⟳
-          </button>
-          <button
-            className="icon"
-            title="Delete view"
-            onClick={() => api.deleteView(v.id).then(bumpLibrary, (e) => setError(errorMessage(e)))}
-          >
-            ✕
-          </button>
+          {canEdit && (
+            <>
+              <button className="icon" title="Overwrite with the current view" onClick={() => save(v)}>
+                ⟳
+              </button>
+              <button className="icon" title="Delete view" onClick={() => api.deleteView(v.id).then(bumpLibrary, (e) => setError(errorMessage(e)))}>
+                ✕
+              </button>
+            </>
+          )}
         </div>
       ))}
     </section>
@@ -130,14 +135,14 @@ function Views() {
 
 const PAGE = 50;
 
-function Search() {
+function Search({ projectId }: { projectId: string }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [submitted, setSubmitted] = useState({ q: "", category: "", page: 0 });
-  const categories = useApi(() => api.categories());
+  const categories = useApi(() => api.categories(projectId), [projectId]);
   const results = useApi(
-    () => api.searchElements({ q: submitted.q, category: submitted.category, limit: PAGE, offset: submitted.page * PAGE }),
-    [submitted],
+    () => api.searchElements({ projectId, q: submitted.q, category: submitted.category, limit: PAGE, offset: submitted.page * PAGE }),
+    [projectId, submitted],
   );
   const total = results.data?.total ?? 0;
 

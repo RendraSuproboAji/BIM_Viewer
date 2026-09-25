@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { loadFiles } from "./bim/actions";
 import { useViewer } from "./bim/store";
 import { Categories } from "./components/Categories";
-import { Issues } from "./components/Issues";
+import { ElementIssues, Issues, NewIssueDialog } from "./components/Issues";
 import { Library } from "./components/Library";
+import { MeasurementHint, MeasurementList } from "./components/Measurements";
 import { ModelTree } from "./components/ModelTree";
-import { Notes } from "./components/Notes";
 import { Properties } from "./components/Properties";
 import { Toolbar } from "./components/Toolbar";
 import { Viewport } from "./components/Viewport";
@@ -20,6 +20,11 @@ const TABS: [Tab, string][] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("tree");
+  const activeIssueId = useViewer((s) => s.activeIssueId);
+  // Opening an issue (from anywhere) shows the Issues tab.
+  useEffect(() => {
+    if (activeIssueId) setTab("issues");
+  }, [activeIssueId]);
   const [dragging, setDragging] = useState(false);
   const loading = useViewer((s) => s.loading);
   const error = useViewer((s) => s.error);
@@ -72,6 +77,7 @@ export default function App() {
         }}
       >
         <Viewport />
+        <MeasurementHint />
         {loading && (
           <div className="overlay">
             <div className="spinner" />
@@ -88,12 +94,14 @@ export default function App() {
       </main>
 
       <aside className="panel right">
+        <MeasurementList />
         <h2>Properties</h2>
         <div className="panel-body">
           <Properties />
         </div>
-        <Notes />
+        <ElementIssues />
       </aside>
+      <NewIssueDialog />
     </div>
   );
 }

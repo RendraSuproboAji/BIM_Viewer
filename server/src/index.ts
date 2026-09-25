@@ -12,6 +12,7 @@ const app = await buildApp({
   staticDir: join(root, "dist"),
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB ?? 500),
   logger: true,
+  trustProxy: process.env.TRUST_PROXY === "true",
 });
 
 const port = Number(process.env.PORT ?? 3001);

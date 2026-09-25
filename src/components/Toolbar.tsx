@@ -1,6 +1,8 @@
 import { useRef } from "react";
 import { hideSelection, isolateSelection, loadFiles, loadUrl, SAMPLE_IFC_URL, select, setGhost, showAll } from "../bim/actions";
+import { useCanEdit } from "../bim/session";
 import { useViewer, type SectionAxis } from "../bim/store";
+import { ProjectMenu } from "./ProjectMenu";
 
 export function Toolbar() {
   const input = useRef<HTMLInputElement>(null);
@@ -10,10 +12,15 @@ export function Toolbar() {
   const setSection = useViewer((s) => s.setSection);
   const requestFit = useViewer((s) => s.requestFit);
   const hasModels = useViewer((s) => s.models.length > 0);
+  const tool = useViewer((s) => s.tool);
+  const canEdit = useCanEdit();
+  const setNewIssueOpen = useViewer((s) => s.setNewIssueOpen);
+  const setTool = useViewer((s) => s.setTool);
 
   return (
     <header className="toolbar">
       <strong className="brand">BIM Viewer</strong>
+      <ProjectMenu />
 
       <div className="group">
         <button onClick={() => input.current?.click()}>Open IFC / FRAG</button>
@@ -38,9 +45,23 @@ export function Toolbar() {
         <button disabled={!selection} onClick={hideSelection}>Hide</button>
         <button disabled={!hasModels} onClick={showAll} title="Show every element, including spaces and openings">Show all</button>
         <button disabled={!selection} onClick={() => select(null)}>Clear selection</button>
+        {canEdit && (
+          <button disabled={!hasModels} onClick={() => setNewIssueOpen(true)} title="Create an issue with the current view">
+            + Issue
+          </button>
+        )}
         <button className={ghost ? "active" : ""} disabled={!hasModels} onClick={() => setGhost(!ghost)}>
           X-ray
         </button>
+      </div>
+
+      <div className="group">
+        <span className="muted small">Measure</span>
+        {(["distance", "area", "angle"] as const).map((t) => (
+          <button key={t} className={tool === t ? "active" : ""} disabled={!hasModels} onClick={() => setTool(tool === t ? "select" : t)}>
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
       </div>
 
       <div className="group">
@@ -49,7 +70,7 @@ export function Toolbar() {
         </button>
         {section.enabled && (
           <>
-            <select value={section.axis} onChange={(e) => setSection({ axis: e.target.value as SectionAxis })}>
+            <select aria-label="Section axis" value={section.axis} onChange={(e) => setSection({ axis: e.target.value as SectionAxis })}>
               <option value="x">X</option>
               <option value="y">Y (plan)</option>
               <option value="z">Z</option>

@@ -1,5 +1,8 @@
 import { create } from "zustand";
 import { HIDDEN_BY_DEFAULT } from "./ifc-classes";
+import type { Project, User } from "../../shared/api";
+import type { ColorByState } from "./colorby";
+import type { Measurement, MeasureTool, Point } from "./measure";
 
 export type SectionAxis = "x" | "y" | "z";
 
@@ -19,6 +22,10 @@ export interface Selection {
 }
 
 interface ViewerState {
+  /** Signed-in user (null until signed in). */
+  user: User | null;
+  projects: Project[];
+  projectId: string | null;
   models: ModelInfo[];
   selection: Selection | null;
   loading: { label: string; progress: number } | null;
@@ -29,15 +36,36 @@ interface ViewerState {
   hiddenClasses: Set<string>;
   /** Bumped on every item visibility change so panels can re-read it. */
   visibilityVersion: number;
+  /** Active tool: selection, or a measurement mode. */
+  tool: "select" | MeasureTool;
+  measurements: Measurement[];
+  /** Points of the measurement being drawn. */
+  draft: Point[];
+  /** Active colour-by-property (with its legend), if any. */
+  colorBy: ColorByState | null;
+  /** Issue shown in the Issues tab (opens that tab). */
+  activeIssueId: string | null;
+  /** New-issue dialog open (with the selection as component when true). */
+  newIssueOpen: boolean;
   /** Bumped when library data (models, views, notes) changes on the server. */
   libraryVersion: number;
   /** Increment to ask the scene to frame everything, the selection, or specific items. */
   fitRequest: { n: number; target: FitTarget };
 
+  setUser: (user: User | null) => void;
+  setProjects: (projects: Project[]) => void;
+  setProjectId: (projectId: string | null) => void;
   addModel: (m: ModelInfo) => void;
   removeModel: (id: string) => void;
   setModelVisible: (id: string, visible: boolean) => void;
   setLibraryId: (id: string, libraryId: string) => void;
+  setActiveIssueId: (id: string | null) => void;
+  setNewIssueOpen: (open: boolean) => void;
+  setTool: (tool: ViewerState["tool"]) => void;
+  setDraft: (draft: Point[]) => void;
+  addMeasurement: (m: Omit<Measurement, "id">) => void;
+  removeMeasurement: (id: number) => void;
+  clearMeasurements: () => void;
   bumpLibrary: () => void;
   select: (s: Selection | null) => void;
   setLoading: (l: ViewerState["loading"]) => void;
@@ -49,7 +77,12 @@ interface ViewerState {
   requestFit: (target?: FitTarget) => void;
 }
 
+let nextMeasurementId = 1;
+
 export const useViewer = create<ViewerState>((set) => ({
+  user: null,
+  projects: [],
+  projectId: null,
   models: [],
   selection: null,
   loading: null,
@@ -59,8 +92,17 @@ export const useViewer = create<ViewerState>((set) => ({
   hiddenClasses: new Set(HIDDEN_BY_DEFAULT),
   visibilityVersion: 0,
   libraryVersion: 0,
+  colorBy: null,
+  activeIssueId: null,
+  newIssueOpen: false,
+  tool: "select",
+  measurements: [],
+  draft: [],
   fitRequest: { n: 0, target: "all" },
 
+  setUser: (user) => set({ user }),
+  setProjects: (projects) => set({ projects }),
+  setProjectId: (projectId) => set((s) => ({ projectId, activeIssueId: null, libraryVersion: s.libraryVersion + 1 })),
   addModel: (m) => set((s) => ({ models: [...s.models, m] })),
   removeModel: (id) =>
     set((s) => ({
@@ -72,6 +114,13 @@ export const useViewer = create<ViewerState>((set) => ({
   setLibraryId: (id, libraryId) =>
     set((s) => ({ models: s.models.map((m) => (m.id === id ? { ...m, libraryId } : m)), libraryVersion: s.libraryVersion + 1 })),
   bumpLibrary: () => set((s) => ({ libraryVersion: s.libraryVersion + 1 })),
+  setActiveIssueId: (activeIssueId) => set({ activeIssueId }),
+  setNewIssueOpen: (newIssueOpen) => set({ newIssueOpen }),
+  setTool: (tool) => set({ tool, draft: [] }),
+  setDraft: (draft) => set({ draft }),
+  addMeasurement: (m) => set((s) => ({ measurements: [...s.measurements, { ...m, id: nextMeasurementId++ }], draft: [] })),
+  removeMeasurement: (id) => set((s) => ({ measurements: s.measurements.filter((m) => m.id !== id) })),
+  clearMeasurements: () => set({ measurements: [], draft: [] }),
   select: (selection) => set({ selection }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
@@ -81,3 +130,6 @@ export const useViewer = create<ViewerState>((set) => ({
   bumpVisibility: () => set((s) => ({ visibilityVersion: s.visibilityVersion + 1 })),
   requestFit: (target = "all") => set((s) => ({ fitRequest: { n: s.fitRequest.n + 1, target } })),
 }));
+
+// Handy for debugging from the browser console during development.
+if (import.meta.env.DEV) (window as unknown as { __bimStore: typeof useViewer }).__bimStore = useViewer;

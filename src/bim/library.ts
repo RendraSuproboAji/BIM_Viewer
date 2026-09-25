@@ -1,13 +1,10 @@
-import type { FragmentsModel } from "@thatopen/fragments";
-import type { ElementRecord, ModelRecord, ViewState } from "../../shared/api";
+import type { ModelRecord, ViewState } from "../../shared/api";
 import { api } from "../api/client";
 import { errorMessage, loadBuffer, select, setClassesVisible, setGhost, showAll } from "./actions";
 import { getCameraState, setCameraState } from "./camera";
 import { engine } from "./engine";
-import { PROPERTIES_QUERY, toElementRecord } from "./properties";
+import { modelElements } from "./model-data";
 import { useViewer } from "./store";
-
-const EXTRACT_BATCH = 250;
 
 // In-flight operations, so double clicks don't upload or open the same model twice.
 const saving = new Map<string, Promise<void>>();
@@ -31,9 +28,12 @@ async function doSave(modelId: string) {
   let uploadedId: string | null = null;
   try {
     // Extract first: it is the step most likely to fail, and nothing is on the server yet.
-    const elements = await extractElements(model, (p) => setLoading({ label: `Extracting BIM data from ${info.name}`, progress: p }));
+    // Cached: free when the takeoff or colour-by already read the model.
+    const elements = await modelElements(model, (p) => setLoading({ label: `Extracting BIM data from ${info.name}`, progress: p }));
     setLoading({ label: `Uploading ${info.name}`, progress: 0 });
-    const record = await api.uploadModel(info.name, await model.getBuffer(false));
+    const projectId = useViewer.getState().projectId;
+    if (!projectId) throw new Error("Open a project first");
+    const record = await api.uploadModel(projectId, info.name, await model.getBuffer(false));
     uploadedId = record.id;
     setLoading({ label: `Saving ${elements.length} elements`, progress: 1 });
     await api.saveElements(record.id, elements);
@@ -45,18 +45,6 @@ async function doSave(modelId: string) {
   } finally {
     setLoading(null);
   }
-}
-
-/** Every element with geometry, flattened into database records (attributes, storey, property sets). */
-export async function extractElements(model: FragmentsModel, onProgress?: (p: number) => void) {
-  const ids = await model.getItemsIdsWithGeometry();
-  const out: ElementRecord[] = [];
-  for (let i = 0; i < ids.length; i += EXTRACT_BATCH) {
-    const batch = await model.getItemsData(ids.slice(i, i + EXTRACT_BATCH), PROPERTIES_QUERY);
-    for (const data of batch) out.push(toElementRecord(data));
-    onProgress?.(Math.min(1, (i + EXTRACT_BATCH) / ids.length));
-  }
-  return out;
 }
 
 /** Opens a library model (or returns it if already open). Resolves to the viewer's model id. */
@@ -88,7 +76,8 @@ async function doOpen(record: Pick<ModelRecord, "id" | "name">, fit: boolean) {
 export async function goToElement(libraryId: string, guid: string) {
   let modelId = useViewer.getState().models.find((m) => m.libraryId === libraryId)?.id ?? null;
   if (!modelId) {
-    const record = (await api.listModels()).find((m) => m.id === libraryId);
+    const projectId = useViewer.getState().projectId;
+    const record = projectId ? (await api.listModels(projectId)).find((m) => m.id === libraryId) : undefined;
     if (!record) return useViewer.getState().setError("That model is no longer in the library");
     modelId = await openFromLibrary(record, false);
   }
@@ -127,7 +116,8 @@ export function captureView(): ViewState | null {
 }
 
 export async function applyView(state: ViewState) {
-  const library = state.models.length ? await api.listModels() : [];
+  const projectId = useViewer.getState().projectId;
+  const library = state.models.length && projectId ? await api.listModels(projectId) : [];
   let missing = 0;
   for (const id of state.models) {
     const record = library.find((m) => m.id === id);
