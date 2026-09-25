@@ -70,7 +70,7 @@ Structural, Electrical, Plumbing in IFC2x3, IFC4 and IFC4.3), plus variants usin
 
 ## Getting started
 
-Requires Node 20.19+.
+Requires Node 22+.
 
 ```bash
 npm install
@@ -80,7 +80,7 @@ npm run build      # production build in dist/
 npm start          # one Node process serving dist/ and the API on http://localhost:3001
 ```
 
-CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests and build on Node 20 and 22 for every pull request and every push to `main`.
+CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests and build on Node 22 and 24 for every pull request and every push to `main`.
 
 `npm run dev:web` / `npm run dev:api` start each half on its own. The viewer also works without the API: choose
 "Use the viewer without the server" on the sign-in screen. Library, saved views and issues need the server.
