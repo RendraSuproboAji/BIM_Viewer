@@ -15,11 +15,19 @@ An experimental web BIM viewer for IFC models, built with
 - Isolate / hide / show all, zoom to selection, fit all, **X-ray** (ghost) mode
 - **Section plane** on X / Y / Z with a position slider and flip
 - Orbit/pan/zoom camera, infinite grid, and an axis gizmo
-- **Database (SQLite, via the API server)**:
+- **Measurements**: distance, area and angle, snapping to vertices, edges and faces. They stay in the scene and can be listed and deleted.
+- **Quantity takeoff**: counts and sums of any numeric property or quantity, grouped by class, storey, type or any property. Also gives the geometric volume computed from the 3D shapes, so it works without Qto sets. Exports to CSV.
+- **Colour by property** with a legend. Numeric values can be grouped into ranges. Each legend entry can be selected or hidden.
+- **Clash detection**: architecture/structure against MEP, or any class set against another. Hard clashes (with a depth tolerance) or clearance checks. A sort-and-sweep broad phase narrows candidates, then exact BVH mesh tests run ([three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)). Each clash can be focused and turned into an issue.
+- **Model version comparison**: matches two versions by GlobalId and reports added, removed and changed elements (properties, position and size, with a 1 mm tolerance). Changes are colour-coded in 3D, shown as a per-element diff, and exportable to CSV.
+- **IFC conversion runs in a Web Worker**, so the UI stays responsive while large files load.
+- **Server & database (SQLite, via the API server)**:
+  - **Login, users and projects**: the first run creates an admin. Admins manage users. Each project has members with the role owner, editor or viewer.
   - **Model library**: 💾 saves a loaded model as `.frag` and reopens it instantly later, without re-converting the IFC
   - **Extracted BIM data**: every element's GUID, class, name, storey, and property/quantity sets become searchable records, exportable to CSV per model
   - **Saved views**: camera, section plane, hidden classes, X-ray, and which library models are open
-  - **Element notes / issues**: attached to an element's GUID, with status (open / in progress / resolved). The Issues tab lists them all and jumps back to the element.
+  - **Issues**: each issue has a title, status, priority, assignee, due date, linked elements, a **viewpoint** (camera + section + snapshot) and comments. Opening an issue restores its viewpoint.
+  - **BCF 2.1 import/export** (`.bcfzip`), for round trips with Revit, Solibri, BIMcollab, etc. The importer also reads BCF 3.0. Re-importing the same file updates the issues rather than duplicating them.
 
 ## Stack: which repo does what
 
@@ -67,13 +75,15 @@ Requires Node 20.19+.
 ```bash
 npm install
 npm run dev        # web app on http://localhost:5173 + API on :3001 (Vite proxies /api)
-npm test           # API tests
+npm test           # API + unit tests
 npm run build      # production build in dist/
 npm start          # one Node process serving dist/ and the API on http://localhost:3001
 ```
 
-`npm run dev:web` / `npm run dev:api` start each half on its own. The viewer works without the API;
-only the Library, Issues and Notes features need it.
+`npm run dev:web` / `npm run dev:api` start each half on its own. The viewer also works without the API: choose
+"Use the viewer without the server" on the sign-in screen. Library, saved views and issues need the server.
+
+On first start, the sign-in screen asks you to create the administrator account.
 
 ### Server configuration
 
@@ -82,9 +92,15 @@ only the Library, Issues and Notes features need it.
 | `PORT` | `3001` | API / app port |
 | `HOST` | `127.0.0.1` | Set to `0.0.0.0` to accept remote connections |
 | `DATA_DIR` | `server/data` | Holds `bim.sqlite` and uploaded `models/*.frag` (gitignored) |
-| `MAX_UPLOAD_MB` | `500` | Largest `.frag` upload |
+| `MAX_UPLOAD_MB` | `500` | Largest `.frag` / `.bcfzip` upload |
+| `TRUST_PROXY` | `false` | Set to `true` behind a reverse proxy, so login throttling sees client IPs |
 
-The API has **no authentication**. Keep it on localhost or put it behind an authenticating proxy before exposing it.
+**Security:**
+- Passwords are hashed with scrypt.
+- Sessions use an httpOnly, `SameSite=Strict` cookie; only its SHA-256 hash is stored.
+- Repeated failed logins are throttled.
+- Every project route checks membership: non-members get 404 and viewers are read-only.
+- Serve the app over HTTPS (for example behind a reverse proxy) when exposing it beyond localhost.
 
 ### Database schema
 
@@ -92,28 +108,45 @@ Defined as versioned migrations in `server/src/db.ts` (`PRAGMA user_version`), a
 
 | Table | Contents |
 | --- | --- |
-| `models` | Library entries. The `.frag` bytes live in `DATA_DIR/models/<id>.frag`. |
+| `users`, `sessions` | Accounts (admin / member) and login sessions |
+| `projects`, `project_members` | Projects and per-project roles |
+| `models` | Library entries per project. The `.frag` bytes live in `DATA_DIR/models/<id>.frag`. |
 | `elements` | One row per element with geometry: GUID, class, name, storey, properties (JSON) |
 | `views` | Named viewer states (JSON) |
-| `notes` | Notes/issues per element GUID, with status |
+| `issues`, `issue_components`, `issue_comments` | Issues with viewpoint and snapshot, linked element GUIDs, comments |
 
-Deleting a model cascades to its elements and notes.
+Deleting a project cascades to everything in it. Deleting a model cascades to its elements.
 
 ### API
 
+Every route except `/api/health`, `/api/auth/status`, `/setup`, `/login` and `/logout` requires a session.
+
 | Method | Path | |
 | --- | --- | --- |
-| `GET` / `POST` | `/api/models` | List / upload (`application/octet-stream`, `?name=`) |
+| `GET` | `/api/auth/status` | Current user and whether setup is needed |
+| `POST` | `/api/auth/setup` · `/login` · `/logout` · `/password` | First admin, sign in/out, change password |
+| `GET` / `POST` | `/api/users` | List / create users (admin) |
+| `PATCH` / `DELETE` | `/api/users/:id` | Update / delete a user (admin) |
+| `GET` / `POST` | `/api/projects` | List own projects / create |
+| `PATCH` / `DELETE` | `/api/projects/:id` | Rename / delete (owner) |
+| `GET` / `PUT` | `/api/projects/:id/members` | List / add or change a member (owner) |
+| `DELETE` | `/api/projects/:id/members/:userId` | Remove a member |
+| `GET` / `POST` | `/api/models?projectId=` | List / upload (`application/octet-stream`, `?name=`) |
 | `GET` / `DELETE` | `/api/models/:id` | Get / delete |
 | `GET` | `/api/models/:id/file` | Download `.frag` |
 | `PUT` | `/api/models/:id/elements` | Replace extracted element data |
 | `GET` | `/api/models/:id/elements.csv` | CSV export |
-| `GET` | `/api/elements?q=&category=&modelId=&limit=&offset=` | Search elements |
-| `GET` | `/api/elements/categories` | Element counts per class |
+| `GET` | `/api/elements?projectId=&q=&category=&modelId=&limit=&offset=` | Search elements |
+| `GET` | `/api/elements/categories?projectId=` | Element counts per class |
 | `GET` / `POST` | `/api/views` | List / create saved views |
 | `PUT` / `DELETE` | `/api/views/:id` | Update / delete |
-| `GET` / `POST` | `/api/notes?modelId=&guid=&status=` | List / create notes |
-| `PATCH` / `DELETE` | `/api/notes/:id` | Update / delete |
+| `GET` / `POST` | `/api/issues?projectId=&status=&guid=&modelId=&assigneeId=` | List / create issues |
+| `GET` / `PATCH` / `DELETE` | `/api/issues/:id` | Get (with comments) / update / delete |
+| `GET` | `/api/issues/:id/snapshot.png` | Viewpoint snapshot |
+| `POST` | `/api/issues/:id/comments` | Add a comment |
+| `DELETE` | `/api/comments/:id` | Delete a comment |
+| `GET` | `/api/projects/:id/bcf?ids=` | Export issues as BCF 2.1 `.bcfzip` |
+| `POST` | `/api/projects/:id/bcf` | Import a `.bcfzip` (BCF 2.1 / 3.0) |
 
 Click **Load sample** to open ThatOpen's `school_str.ifc` (downloaded from GitHub),
 or open/drop your own `.ifc` / `.frag` file.
@@ -121,27 +154,32 @@ or open/drop your own `.ifc` / `.frag` file.
 ## Project layout
 
 ```
-shared/api.ts          types shared by the web app and the server
+shared/                api types and CSV helpers shared by the web app and the server
 server/
   src/db.ts            SQLite connection + schema migrations
-  src/app.ts           API routes (Fastify)
+  src/auth.ts          passwords, sessions, throttling, project roles
+  src/bcf.ts           BCF 2.1 writer / BCF 2.1+3.0 reader
+  src/app.ts           Fastify app; routes in src/routes/
   src/index.ts         server entry (also serves dist/ in production)
-  test/api.test.ts     API tests (node:test)
+  test/                API, auth and migration tests (node:test)
 src/
   api/client.ts        typed API client
-  bim/library.ts       save/open library models, BIM data extraction, saved views
-  bim/properties.ts    IFC property parsing (shared by panel and extraction)
-  components/Library.tsx, Notes.tsx, Issues.tsx
-  bim/engine.ts        That Open setup (FragmentsManager, IfcLoader) + picking
+  bim/engine.ts        That Open setup (FragmentsManager, worker IFC import), picking, snapping, clipping
+  bim/ifc-worker.ts    IFC → Fragments conversion in a Web Worker
   bim/ifc-classes.ts   full IFC class catalogue, disciplines, extra relations
   bim/actions.ts       load / select / isolate / hide / x-ray / export
   bim/store.ts         zustand store
-  components/
-    Viewport.tsx       R3F canvas; bridges fragments into the scene, section, picking
-    ModelTree.tsx      spatial tree
-    Categories.tsx     IFC class filter
-    Properties.tsx     property sets / quantities
-    Toolbar.tsx
+  bim/session.ts       sign-in state, projects
+  bim/library.ts       model library, BIM data extraction, saved views
+  bim/issues.ts, viewpoint.ts   issues and BCF viewpoints (camera, clipping, snapshot)
+  bim/measure.ts       measurement maths
+  bim/takeoff.ts, colorby.ts    quantity takeoff and colour-by-property
+  bim/clash.ts, clash-run.ts    clash detection
+  bim/compare.ts, compare-run.ts  model version comparison
+  bim/*.test.ts        unit tests
+  components/          Viewport (R3F canvas), Toolbar, ModelTree, Categories, Properties,
+                       DataPanel, ClashPanel, ComparePanel, Library, Issues, Measurements,
+                       Auth, ProjectMenu
 scripts/copy-wasm.mjs  copies web-ifc WASM to public/web-ifc (runs automatically)
 ```
 
