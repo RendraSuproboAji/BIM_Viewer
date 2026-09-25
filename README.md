@@ -22,7 +22,7 @@ An experimental web BIM viewer for IFC models, built with
 - **Model version comparison**: matches two versions by GlobalId and reports added, removed and changed elements (properties, position and size, with a 1 mm tolerance). Changes are colour-coded in 3D, shown as a per-element diff, and exportable to CSV.
 - **IFC conversion runs in a Web Worker**, so the UI stays responsive while large files load.
 - **Server & database (SQLite, via the API server)**:
-  - **Login, users and projects**: the first run creates an admin. Admins manage users. Each project has members with the role owner, editor or viewer.
+  - **Login, users, projects and roles** (RBAC): the first run creates an admin. Every account is an **Admin**, **Editor** or **Client** (see [Roles](#roles)); project membership decides which projects a user sees.
   - **Model library**: 💾 saves a loaded model as `.frag` and reopens it instantly later, without re-converting the IFC
   - **Extracted BIM data**: every element's GUID, class, name, storey, and property/quantity sets become searchable records, exportable to CSV per model
   - **Saved views**: camera, section plane, hidden classes, X-ray, and which library models are open
@@ -107,8 +107,29 @@ On first start, the sign-in screen asks you to create the administrator account.
 - Passwords are hashed with scrypt.
 - Sessions use an httpOnly, `SameSite=Strict` cookie; only its SHA-256 hash is stored.
 - Repeated failed logins are throttled.
-- Every project route checks membership: non-members get 404 and viewers are read-only.
+- Every project route checks membership (non-members get 404) and the user's role (403); see [Roles](#roles).
 - Serve the app over HTTPS (for example behind a reverse proxy) when exposing it beyond localhost.
+
+### Roles
+
+Each account has one role; project membership decides which projects a user sees (admins see all). The rules live in [`shared/permissions.ts`](shared/permissions.ts), which the API enforces and the UI uses to show or hide actions.
+
+| | Admin | Editor | Client |
+| --- | :---: | :---: | :---: |
+| See projects | all | member of | member of |
+| Open models, saved views, properties; measure, takeoff, clash, compare (local) | ✓ | ✓ | ✓ |
+| Export CSV / BCF | ✓ | ✓ | ✓ |
+| Raise issues, comment | ✓ | ✓ | ✓ |
+| Edit their own issues (title, description, labels, elements, viewpoint) | ✓ | ✓ | ✓ |
+| Triage issues (status, priority, assignee, due date), edit or delete any issue | ✓ | ✓ | |
+| Delete other people's comments | ✓ | ✓ | |
+| Upload / delete library models, save views, import BCF | ✓ | ✓ | |
+| Manage users, projects and members | ✓ | | |
+
+- New accounts are clients by default and see no projects until an admin adds them (the "Add user" form can add them to a project straight away).
+- Role changes apply on the user's next request; there is always at least one admin.
+- Non-admins only see the people they share a project with.
+- Upgrading from the earlier per-project roles: admins stay admins; members who owned or edited any project become editors; members who were only ever viewers become clients.
 
 ### Database schema
 
@@ -116,8 +137,8 @@ Defined as versioned migrations in `server/src/db.ts` (`PRAGMA user_version`), a
 
 | Table | Contents |
 | --- | --- |
-| `users`, `sessions` | Accounts (admin / member) and login sessions |
-| `projects`, `project_members` | Projects and per-project roles |
+| `users`, `sessions` | Accounts with their role (admin / editor / client) and login sessions |
+| `projects`, `project_members` | Projects and who can see them |
 | `models` | Library entries per project. The `.frag` bytes live in `DATA_DIR/models/<id>.frag`. |
 | `elements` | One row per element with geometry: GUID, class, name, storey, properties (JSON) |
 | `views` | Named viewer states (JSON) |
@@ -133,11 +154,11 @@ Every route except `/api/health`, `/api/auth/status`, `/setup`, `/login` and `/l
 | --- | --- | --- |
 | `GET` | `/api/auth/status` | Current user and whether setup is needed |
 | `POST` | `/api/auth/setup` · `/login` · `/logout` · `/password` | First admin, sign in/out, change password |
-| `GET` / `POST` | `/api/users` | List / create users (admin) |
+| `GET` / `POST` | `/api/users` | List users (admins: all; others: people they share a project with) / create (admin) |
 | `PATCH` / `DELETE` | `/api/users/:id` | Update / delete a user (admin) |
-| `GET` / `POST` | `/api/projects` | List own projects / create |
-| `PATCH` / `DELETE` | `/api/projects/:id` | Rename / delete (owner) |
-| `GET` / `PUT` | `/api/projects/:id/members` | List / add or change a member (owner) |
+| `GET` / `POST` | `/api/projects` | List visible projects / create (admin) |
+| `PATCH` / `DELETE` | `/api/projects/:id` | Rename / delete (admin) |
+| `GET` / `PUT` | `/api/projects/:id/members` | List / add a member (admin) |
 | `DELETE` | `/api/projects/:id/members/:userId` | Remove a member |
 | `GET` / `POST` | `/api/models?projectId=` | List / upload (`application/octet-stream`, `?name=`) |
 | `GET` / `DELETE` | `/api/models/:id` | Get / delete |
@@ -162,7 +183,7 @@ or open/drop your own `.ifc` / `.frag` file.
 ## Project layout
 
 ```
-shared/                api types and CSV helpers shared by the web app and the server
+shared/                api types, CSV helpers and the role/permission matrix (permissions.ts), shared by web app and server
 server/
   src/db.ts            SQLite connection + schema migrations
   src/auth.ts          passwords, sessions, throttling, project roles

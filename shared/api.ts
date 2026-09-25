@@ -1,3 +1,5 @@
+import type { Role } from "./permissions.ts";
+
 /** Types shared by the web app (src/) and the API server (server/). */
 
 export interface ModelRecord {
@@ -62,7 +64,8 @@ export interface ViewRecord {
 
 // ---- Users, sessions and projects -----------------------------------------------------------------
 
-export type UserRole = "admin" | "member";
+/** An account's role; see shared/permissions.ts for what each may do. */
+export type UserRole = Role;
 
 export interface User {
   id: string;
@@ -78,22 +81,18 @@ export interface AuthStatus {
   user: User | null;
 }
 
-export const PROJECT_ROLES = ["owner", "editor", "viewer"] as const;
-export type ProjectRole = (typeof PROJECT_ROLES)[number];
-
 export interface Project {
   id: string;
   name: string;
   createdAt: string;
-  /** The current user's role in the project (admins act as owners). */
-  role: ProjectRole;
 }
 
 export interface ProjectMember {
   userId: string;
   name: string;
   email: string;
-  role: ProjectRole;
+  /** The member's account role. */
+  role: UserRole;
 }
 
 // ---- Issues (BCF topics) -------------------------------------------------------------------------

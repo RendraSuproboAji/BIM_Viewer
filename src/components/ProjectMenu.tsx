@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { PROJECT_ROLES, type ProjectMember, type ProjectRole, type User, type UserRole } from "../../shared/api";
+import type { ProjectMember, User, UserRole } from "../../shared/api";
+import { can, ROLE_DESCRIPTIONS, ROLE_LABELS, ROLES } from "../../shared/permissions";
 import { api } from "../api/client";
 import { useApi } from "../api/useApi";
 import { errorMessage } from "../bim/actions";
-import { capitalize } from "../bim/format";
-import { refreshProjects, signOut, switchProject } from "../bim/session";
+import { refreshProjects, signOut, switchProject, useCan } from "../bim/session";
 import { useViewer } from "../bim/store";
 
 /** Project switcher + settings in the toolbar. */
@@ -13,6 +13,7 @@ export function ProjectMenu() {
   const projectId = useViewer((s) => s.projectId);
   const user = useViewer((s) => s.user);
   const hasModels = useViewer((s) => s.models.length > 0);
+  const canManageProjects = useCan("projects.manage");
   const [dialog, setDialog] = useState<"project" | "new" | null>(null);
 
   const change = (id: string) => {
@@ -30,14 +31,30 @@ export function ProjectMenu() {
             {p.name}
           </option>
         ))}
-        <option value="__new">+ New project…</option>
+        {canManageProjects && <option value="__new">+ New project…</option>}
       </select>
       <button onClick={() => setDialog("project")} title="Project, users and account settings" aria-label="Settings">
         ⚙ {user?.name}
+        {user && <span className={`role-badge role-${user.role}`}>{ROLE_LABELS[user.role]}</span>}
       </button>
       {dialog === "new" && <NewProjectDialog onClose={() => setDialog(null)} />}
       {dialog === "project" && <SettingsDialog onClose={() => setDialog(null)} />}
     </div>
+  );
+}
+
+/** Shown in project-scoped panels when no project is open. */
+export function NoProject({ what }: { what: string }) {
+  const canManage = useCan("projects.manage");
+  const hasProjects = useViewer((s) => s.projects.length > 0);
+  return (
+    <p className="empty">
+      {canManage
+        ? `Create or open a project (toolbar) to ${what}.`
+        : hasProjects
+          ? `Open a project (toolbar) to ${what}.`
+          : `You haven't been added to a project yet. Ask an admin to add you, then you can ${what}.`}
+    </p>
   );
 }
 
@@ -102,7 +119,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
         <button className={tab === "project" ? "active" : ""} onClick={() => setTab("project")}>
           Project
         </button>
-        {user.role === "admin" && (
+        {can(user.role, "users.manage") && (
           <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
             Users
           </button>
@@ -121,11 +138,11 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
 function ProjectSettings({ onDeleted }: { onDeleted: () => void }) {
   const project = useViewer((s) => s.projects.find((p) => p.id === s.projectId));
   const me = useViewer((s) => s.user)!;
+  const canManage = useCan("projects.manage");
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [name, setName] = useState(project?.name ?? "");
   const [error, setError] = useState<string | null>(null);
-  const users = useApi(() => api.listUsers());
-  const isOwner = project?.role === "owner";
+  const users = useApi(() => (canManage ? api.listUsers() : Promise.resolve([])), [canManage]);
 
   useEffect(() => {
     if (project) api.listMembers(project.id).then(setMembers, (e) => setError(errorMessage(e)));
@@ -155,12 +172,15 @@ function ProjectSettings({ onDeleted }: { onDeleted: () => void }) {
           });
         }}
       >
-        <input value={name} onChange={(e) => setName(e.target.value)} disabled={!isOwner} aria-label="Project name" maxLength={200} />
-        {isOwner && <button type="submit">Rename</button>}
+        <input value={name} onChange={(e) => setName(e.target.value)} disabled={!canManage} aria-label="Project name" maxLength={200} />
+        {canManage && <button type="submit">Rename</button>}
       </form>
-      <p className="muted small">Your role: {capitalize(project.role)}. Owners manage members; editors change models, views and issues; viewers read and comment.</p>
+      <p className="muted small">
+        Your role: <strong>{ROLE_LABELS[me.role]}</strong>. {ROLE_DESCRIPTIONS[me.role]}
+      </p>
 
       <h3>Members</h3>
+      <p className="muted small">Members see this project. What each one may do comes from their account role{canManage ? ", set in the Users tab" : ""}.</p>
       <table className="grid-table">
         <tbody>
           {members.map((m) => (
@@ -169,27 +189,16 @@ function ProjectSettings({ onDeleted }: { onDeleted: () => void }) {
                 {m.name} <span className="muted small">{m.email}</span>
               </td>
               <td>
-                <select
-                  value={m.role}
-                  disabled={!isOwner}
-                  onChange={(e) => run(async () => setMembers(await api.setMember(project.id, m.userId, e.target.value as ProjectRole)))}
-                  aria-label={`Role of ${m.name}`}
-                >
-                  {PROJECT_ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {capitalize(r)}
-                    </option>
-                  ))}
-                </select>
+                <span className={`role-badge role-${m.role}`}>{ROLE_LABELS[m.role]}</span>
               </td>
               <td>
-                {(isOwner || m.userId === me.id) && (
+                {(canManage || m.userId === me.id) && (
                   <button
                     onClick={() =>
                       run(async () => {
                         if (!confirm(m.userId === me.id ? "Leave this project?" : `Remove ${m.name} from the project?`)) return;
                         setMembers(await api.removeMember(project.id, m.userId));
-                        if (m.userId === me.id) {
+                        if (m.userId === me.id && !canManage) {
                           const projects = await refreshProjects();
                           await switchProject(projects[0]?.id ?? null);
                           onDeleted();
@@ -205,9 +214,9 @@ function ProjectSettings({ onDeleted }: { onDeleted: () => void }) {
           ))}
         </tbody>
       </table>
-      {isOwner && candidates.length > 0 && <AddMember candidates={candidates} onAdd={(userId, role) => run(async () => setMembers(await api.setMember(project.id, userId, role)))} />}
+      {canManage && candidates.length > 0 && <AddMember candidates={candidates} onAdd={(userId) => run(async () => setMembers(await api.addMember(project.id, userId)))} />}
 
-      {isOwner && (
+      {canManage && (
         <>
           <h3>Danger zone</h3>
           <button
@@ -230,28 +239,21 @@ function ProjectSettings({ onDeleted }: { onDeleted: () => void }) {
   );
 }
 
-function AddMember({ candidates, onAdd }: { candidates: User[]; onAdd: (userId: string, role: ProjectRole) => void }) {
+function AddMember({ candidates, onAdd }: { candidates: User[]; onAdd: (userId: string) => void }) {
   const [userId, setUserId] = useState(candidates[0]?.id ?? "");
-  const [role, setRole] = useState<ProjectRole>("editor");
+  const selected = candidates.find((u) => u.id === userId) ?? candidates[0];
   return (
     <form
       className="inline-form"
       onSubmit={(e) => {
         e.preventDefault();
-        if (userId) onAdd(userId, role);
+        if (selected) onAdd(selected.id);
       }}
     >
-      <select value={userId} onChange={(e) => setUserId(e.target.value)} aria-label="User to add">
+      <select value={selected?.id ?? ""} onChange={(e) => setUserId(e.target.value)} aria-label="User to add">
         {candidates.map((u) => (
           <option key={u.id} value={u.id}>
-            {u.name} ({u.email})
-          </option>
-        ))}
-      </select>
-      <select value={role} onChange={(e) => setRole(e.target.value as ProjectRole)} aria-label="Role">
-        {PROJECT_ROLES.map((r) => (
-          <option key={r} value={r}>
-            {capitalize(r)}
+            {u.name} ({u.email}) · {ROLE_LABELS[u.role]}
           </option>
         ))}
       </select>
@@ -260,11 +262,26 @@ function AddMember({ candidates, onAdd }: { candidates: User[]; onAdd: (userId: 
   );
 }
 
+function RoleSelect({ value, onChange, label }: { value: UserRole; onChange: (role: UserRole) => void; label: string }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value as UserRole)} aria-label={label} title={ROLE_DESCRIPTIONS[value]}>
+      {ROLES.map((r) => (
+        <option key={r} value={r}>
+          {ROLE_LABELS[r]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function UsersAdmin() {
   const me = useViewer((s) => s.user)!;
+  const projects = useViewer((s) => s.projects);
+  const currentProjectId = useViewer((s) => s.projectId);
   const [version, setVersion] = useState(0);
   const users = useApi(() => api.listUsers(), [version]);
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "member" as UserRole });
+  const empty = { name: "", email: "", password: "", role: "client" as UserRole, projectId: currentProjectId ?? "" };
+  const [form, setForm] = useState(empty);
   const [error, setError] = useState<string | null>(null);
   const run = async (action: () => Promise<unknown>) => {
     setError(null);
@@ -286,10 +303,7 @@ function UsersAdmin() {
                 {u.name} <span className="muted small">{u.email}</span>
               </td>
               <td>
-                <select value={u.role} onChange={(e) => run(() => api.updateUser(u.id, { role: e.target.value as UserRole }))} aria-label={`Role of ${u.name}`}>
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
+                <RoleSelect value={u.role} label={`Role of ${u.name}`} onChange={(role) => run(() => api.updateUser(u.id, { role }))} />
               </td>
               <td>
                 <button
@@ -310,14 +324,29 @@ function UsersAdmin() {
           ))}
         </tbody>
       </table>
+
+      <h3>Roles</h3>
+      <dl className="role-legend">
+        {ROLES.map((r) => (
+          <div key={r}>
+            <dt>
+              <span className={`role-badge role-${r}`}>{ROLE_LABELS[r]}</span>
+            </dt>
+            <dd className="muted small">{ROLE_DESCRIPTIONS[r]}</dd>
+          </div>
+        ))}
+      </dl>
+
       <h3>Add user</h3>
       <form
         className="grid-form"
         onSubmit={(e) => {
           e.preventDefault();
           void run(async () => {
-            await api.createUser(form);
-            setForm({ name: "", email: "", password: "", role: "member" });
+            const { projectId, ...account } = form;
+            const created = await api.createUser(account);
+            if (projectId) await api.addMember(projectId, created.id);
+            setForm(empty);
           });
         }}
       >
@@ -333,13 +362,18 @@ function UsersAdmin() {
           aria-label="Initial password"
           autoComplete="new-password"
         />
-        <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })} aria-label="Role">
-          <option value="member">Member</option>
-          <option value="admin">Admin</option>
+        <RoleSelect value={form.role} label="Role" onChange={(role) => setForm({ ...form, role })} />
+        <select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })} aria-label="Add to project">
+          <option value="">No project yet</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              Add to {p.name}
+            </option>
+          ))}
         </select>
         <button type="submit">Add user</button>
       </form>
-      <p className="muted small">New users are added to the default project. Add them to other projects from the Project tab.</p>
+      <p className="muted small">Users only see projects they're members of (admins see all). Add them to more projects from the Project tab.</p>
     </div>
   );
 }
@@ -352,7 +386,7 @@ function AccountSettings() {
   return (
     <div className="settings-section">
       <p>
-        Signed in as <strong>{user.name}</strong> ({user.email}) · {capitalize(user.role)}
+        Signed in as <strong>{user.name}</strong> ({user.email}) · <span className={`role-badge role-${user.role}`}>{ROLE_LABELS[user.role]}</span>
       </p>
       <h3>Change password</h3>
       <form

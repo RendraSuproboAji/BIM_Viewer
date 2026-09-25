@@ -14,10 +14,10 @@ import { useApi } from "../api/useApi";
 import { errorMessage } from "../bim/actions";
 import { capitalize, formatDate, prettyCategory, PRIORITY_LABELS, STATUS_LABELS } from "../bim/format";
 import { createIssue, highlightComponents, openIssue, selectionComponent, updateIssueViewpoint } from "../bim/issues";
-import { useCanEdit } from "../bim/session";
+import { useCan } from "../bim/session";
 import { useViewer } from "../bim/store";
 import { useAsyncValue } from "../hooks/useAsyncValue";
-import { Modal } from "./ProjectMenu";
+import { Modal, NoProject } from "./ProjectMenu";
 
 /** Issues tab: list with filters and BCF import/export, or one issue's detail. */
 export function Issues() {
@@ -28,7 +28,8 @@ export function Issues() {
 function IssueList() {
   const projectId = useViewer((s) => s.projectId);
   const me = useViewer((s) => s.user);
-  const canEdit = useCanEdit();
+  const canCreate = useCan("issues.create");
+  const canImport = useCan("bcf.import");
   const [status, setStatus] = useState<IssueStatus | "active" | "">("active");
   const [assignee, setAssignee] = useState<"" | "me">("");
   const [text, setText] = useState("");
@@ -45,11 +46,11 @@ function IssueList() {
       (!text || `#${i.number} ${i.title} ${i.description} ${i.labels.join(" ")}`.toLowerCase().includes(text.toLowerCase())),
   );
 
-  if (!projectId) return <p className="empty">Open or create a project to track issues.</p>;
+  if (!projectId) return <NoProject what="track issues" />;
   return (
     <div className="library">
       <div className="inline-form">
-        {canEdit && (
+        {canCreate && (
           <button className="primary" onClick={() => setNewIssueOpen(true)}>
             + New issue
           </button>
@@ -57,7 +58,7 @@ function IssueList() {
         <a className="button" href={api.bcfExportUrl(projectId, visible.map((i) => i.id))} download title="Export the listed issues as BCF 2.1">
           Export BCF
         </a>
-        {canEdit && (
+        {canImport && (
           <button onClick={() => bcfInput.current?.click()} title="Import a .bcfzip from Revit, Navisworks, Solibri, BIMcollab…">
             Import BCF
           </button>
@@ -130,8 +131,10 @@ function IssueDetail({ id }: { id: string }) {
   const projectId = useViewer((s) => s.projectId);
   const me = useViewer((s) => s.user)!;
   const libraryVersion = useViewer((s) => s.libraryVersion);
-  const canEdit = useCanEdit();
-  const isOwner = useViewer((s) => s.projects.find((p) => p.id === s.projectId)?.role === "owner");
+  const canManage = useCan("issues.manage");
+  const canEditOwn = useCan("issues.editOwn");
+  const canComment = useCan("comments.create");
+  const canModerate = useCan("comments.moderate");
   const [issue, setIssue] = useState<IssueDetailData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [comment, setComment] = useState("");
@@ -172,6 +175,10 @@ function IssueDetail({ id }: { id: string }) {
     );
   }
 
+  // Editors and admins edit everything; clients the content of issues they raised, not triage.
+  const canEdit = canManage || (canEditOwn && issue.authorId === me.id);
+  const canTriage = canManage;
+
   return (
     <div className="library issue-detail">
       <div className="inline-form">
@@ -204,7 +211,7 @@ function IssueDetail({ id }: { id: string }) {
       <div className="field-grid">
         <label>
           Status
-          <select value={issue.status} disabled={!canEdit} onChange={(e) => patch({ status: e.target.value as IssueStatus })}>
+          <select value={issue.status} disabled={!canTriage} onChange={(e) => patch({ status: e.target.value as IssueStatus })}>
             {ISSUE_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABELS[s]}
@@ -214,7 +221,7 @@ function IssueDetail({ id }: { id: string }) {
         </label>
         <label>
           Priority
-          <select value={issue.priority} disabled={!canEdit} onChange={(e) => patch({ priority: e.target.value as IssuePriority })}>
+          <select value={issue.priority} disabled={!canTriage} onChange={(e) => patch({ priority: e.target.value as IssuePriority })}>
             {ISSUE_PRIORITIES.map((p) => (
               <option key={p} value={p}>
                 {PRIORITY_LABELS[p]}
@@ -234,7 +241,7 @@ function IssueDetail({ id }: { id: string }) {
         </label>
         <label>
           Assignee
-          <select value={issue.assigneeId ?? ""} disabled={!canEdit} onChange={(e) => patch({ assigneeId: e.target.value || null })}>
+          <select value={issue.assigneeId ?? ""} disabled={!canTriage} onChange={(e) => patch({ assigneeId: e.target.value || null })}>
             <option value="">Unassigned</option>
             {issue.assigneeId && !members.data?.some((m) => m.userId === issue.assigneeId) && <option value={issue.assigneeId}>{issue.assigneeName}</option>}
             {members.data?.map((m) => (
@@ -246,7 +253,7 @@ function IssueDetail({ id }: { id: string }) {
         </label>
         <label>
           Due
-          <input type="date" value={issue.dueDate ?? ""} disabled={!canEdit} onChange={(e) => patch({ dueDate: e.target.value || null })} />
+          <input type="date" value={issue.dueDate ?? ""} disabled={!canTriage} onChange={(e) => patch({ dueDate: e.target.value || null })} />
         </label>
         <label>
           Labels
@@ -297,7 +304,7 @@ function IssueDetail({ id }: { id: string }) {
         <div key={c.id} className="comment">
           <div className="muted small">
             <strong>{c.authorName ?? "unknown"}</strong> · {new Date(c.createdAt).toLocaleString()}
-            {(c.authorId === me.id || isOwner) && (
+            {(c.authorId === me.id || canModerate) && (
               <button className="icon" title="Delete comment" onClick={() => confirm("Delete this comment?") && run(async () => {
                 await api.deleteComment(c.id);
                 return api.getIssue(id);
@@ -309,7 +316,7 @@ function IssueDetail({ id }: { id: string }) {
           <p>{c.body}</p>
         </div>
       ))}
-      <form
+      {canComment && <form
         className="note-form"
         onSubmit={(e) => {
           e.preventDefault();
@@ -325,9 +332,9 @@ function IssueDetail({ id }: { id: string }) {
         <button type="submit" disabled={!comment.trim()}>
           Comment
         </button>
-      </form>
+      </form>}
 
-      {canEdit && (
+      {canManage && (
         <>
           <h3>&nbsp;</h3>
           <button
@@ -390,7 +397,9 @@ export function NewIssueDialog() {
   const open = useViewer((s) => s.newIssueOpen);
   const projectId = useViewer((s) => s.projectId);
   const hasSelection = useViewer((s) => !!s.selection);
-  const members = useApi(() => (projectId && open ? api.listMembers(projectId) : Promise.resolve([])), [projectId, open]);
+  // Clients raise issues; editors and admins also set priority, assignee and due date.
+  const canTriage = useCan("issues.manage");
+  const members = useApi(() => (projectId && open && canTriage ? api.listMembers(projectId) : Promise.resolve([])), [projectId, open, canTriage]);
   const [form, setForm] = useState({ title: "", description: "", type: "issue", priority: "normal" as IssuePriority, assigneeId: "", dueDate: "", labels: "" });
   const [withSelection, setWithSelection] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -415,9 +424,7 @@ export function NewIssueDialog() {
               title: form.title.trim(),
               description: form.description,
               type: form.type,
-              priority: form.priority,
-              assigneeId: form.assigneeId || null,
-              dueDate: form.dueDate || null,
+              ...(canTriage ? { priority: form.priority, assigneeId: form.assigneeId || null, dueDate: form.dueDate || null } : {}),
               labels: [...new Set(form.labels.split(",").map((l) => l.trim()).filter(Boolean))],
               components: component ? [component] : [],
             });
@@ -450,6 +457,8 @@ export function NewIssueDialog() {
               ))}
             </select>
           </label>
+{canTriage && (
+            <>
           <label>
             Priority
             <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as IssuePriority })}>
@@ -475,6 +484,8 @@ export function NewIssueDialog() {
             Due
             <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
           </label>
+            </>
+          )}
         </div>
         <label>
           Labels
@@ -499,7 +510,7 @@ export function NewIssueDialog() {
 export function ElementIssues() {
   const selection = useViewer((s) => s.selection);
   const projectId = useViewer((s) => s.projectId);
-  const canEdit = useCanEdit();
+  const canCreate = useCan("issues.create");
   const guid = useAsyncValue(selection, async (sel) => (sel ? ((await selectionComponent())?.guid ?? null) : null)).value ?? null;
   const issues = useApi(() => (projectId && guid ? api.listIssues({ projectId, guid }) : Promise.resolve([])), [projectId, guid]);
   const { setActiveIssueId, setNewIssueOpen } = useViewer.getState();
@@ -509,7 +520,7 @@ export function ElementIssues() {
     <div className="notes">
       <h2>
         Issues ({issues.data?.length ?? 0})
-        {canEdit && (
+        {canCreate && (
           <button className="link" onClick={() => setNewIssueOpen(true)}>
             + New
           </button>

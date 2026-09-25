@@ -27,7 +27,7 @@ test("upgrading a version-1 database keeps all data", () => {
     v1.close();
 
     const db = openDatabase(file);
-    assert.equal(db.pragma("user_version", { simple: true }), 2);
+    assert.equal(db.pragma("user_version", { simple: true }), 3);
     assert.equal(db.pragma("foreign_keys", { simple: true }), 1);
     assert.deepEqual(db.pragma("foreign_key_check"), []);
     assert.deepEqual(db.prepare("SELECT id, project_id FROM models").all(), [{ id: "m1", project_id: DEFAULT_PROJECT_ID }]);
@@ -51,8 +51,62 @@ test("upgrading a version-1 database keeps all data", () => {
 
     // Reopening is a no-op.
     const again = openDatabase(file);
-    assert.equal(again.pragma("user_version", { simple: true }), 2);
+    assert.equal(again.pragma("user_version", { simple: true }), 3);
     again.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("upgrading a version-2 database maps project roles to account roles", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bim-migrate-"));
+  const file = join(dir, "v2.sqlite");
+  try {
+    const source = readFileSync(new URL("../src/db.ts", import.meta.url), "utf8");
+    // The migration template literals are the odd-numbered pieces between backticks.
+    const migrations = source.split("const MIGRATIONS: string[] = [")[1].split("`");
+    const v2 = new Database(file);
+    v2.exec(migrations[1]);
+    v2.exec(migrations[3].replaceAll("${DEFAULT_PROJECT_ID}", DEFAULT_PROJECT_ID));
+    v2.pragma("user_version = 2");
+    const user = v2.prepare("INSERT INTO users (id, email, name, password_hash, role) VALUES (?, ?, ?, 'x', ?)");
+    user.run("u-admin", "admin@example.com", "Admin", "admin");
+    user.run("u-owner", "owner@example.com", "Owner", "member");
+    user.run("u-editor", "editor@example.com", "Editor", "member");
+    user.run("u-viewer", "viewer@example.com", "Viewer", "member");
+    user.run("u-mixed", "mixed@example.com", "Mixed", "member");
+    user.run("u-none", "none@example.com", "None", "member");
+    v2.prepare("INSERT INTO projects (id, name) VALUES ('p2', 'Second')").run();
+    const member = v2.prepare("INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)");
+    member.run(DEFAULT_PROJECT_ID, "u-owner", "owner");
+    member.run(DEFAULT_PROJECT_ID, "u-editor", "editor");
+    member.run(DEFAULT_PROJECT_ID, "u-viewer", "viewer");
+    member.run(DEFAULT_PROJECT_ID, "u-mixed", "viewer");
+    member.run("p2", "u-mixed", "editor");
+    v2.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('t', 'u-viewer', '2099-01-01')").run();
+    v2.close();
+
+    const db = openDatabase(file);
+    assert.equal(db.pragma("user_version", { simple: true }), 3);
+    assert.deepEqual(db.pragma("foreign_key_check"), []);
+    const roles = Object.fromEntries((db.prepare("SELECT id, role FROM users").all() as { id: string; role: string }[]).map((r) => [r.id, r.role]));
+    assert.deepEqual(roles, {
+      "u-admin": "admin",
+      "u-owner": "editor",
+      "u-editor": "editor",
+      "u-viewer": "client",
+      "u-mixed": "editor",
+      "u-none": "editor",
+    });
+    // Memberships and sessions survive; project_members has no role column any more.
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM project_members").get() as { n: number }).n, 5);
+    assert.ok(!(db.prepare("PRAGMA table_info(project_members)").all() as { name: string }[]).some((c) => c.name === "role"));
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n, 1);
+    // Foreign keys to the rebuilt users table still cascade.
+    db.prepare("DELETE FROM users WHERE id = 'u-viewer'").run();
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n, 0);
+    assert.throws(() => db.prepare("INSERT INTO users (id, email, name, password_hash, role) VALUES ('z', 'z@example.com', 'Z', 'x', 'member')").run());
+    db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

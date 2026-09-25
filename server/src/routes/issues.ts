@@ -11,8 +11,8 @@ import {
   type IssuePatch,
   type IssueViewpoint,
   type NewIssue,
-  type ProjectRole,
 } from "../../../shared/api.ts";
+import { can, ISSUE_TRIAGE_FIELDS, type Permission } from "../../../shared/permissions.ts";
 import { HttpError, requireProject } from "../auth.ts";
 import { BcfError, readBcf, writeBcf, type BcfTopic } from "../bcf.ts";
 import { ID, idParams, NOW, type RouteContext } from "./context.ts";
@@ -166,15 +166,22 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
     return { ...toIssue(row), comments: comments(id) };
   };
 
-  function accessIssue(req: FastifyRequest, id: string, minimum: ProjectRole) {
+  function accessIssue(req: FastifyRequest, id: string, permission?: Permission) {
     const row = getRow(id);
     if (!row) throw new HttpError(404, "Issue not found");
     try {
-      return { row, ...requireProject(db, req, row.project_id, minimum) };
+      return { row, ...requireProject(db, req, row.project_id, permission) };
     } catch (e) {
       if (e instanceof HttpError && e.statusCode === 404) throw new HttpError(404, "Issue not found");
       throw e;
     }
+  }
+
+  /** Roles without `issues.manage` (clients) can't triage: set status, priority, assignee or due date. */
+  function checkTriage(role: Parameters<typeof can>[0], input: object) {
+    if (can(role, "issues.manage")) return;
+    const triage = ISSUE_TRIAGE_FIELDS.filter((f) => f in input && (input as Record<string, unknown>)[f] !== undefined);
+    if (triage.length) throw new HttpError(403, `Only editors and admins can set ${triage.join(", ")}`);
   }
 
   /** Assignees and component models must belong to the issue's project. */
@@ -219,7 +226,7 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
         },
       },
       async (req): Promise<Issue[]> => {
-        requireProject(db, req, req.query.projectId, "viewer");
+        requireProject(db, req, req.query.projectId);
         const where = ["i.project_id = @projectId"];
         const q = req.query;
         if (q.status) where.push("i.status = @status");
@@ -231,7 +238,7 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
     );
 
     app.get<{ Params: { id: string } }>("/api/issues/:id", { schema: { params: idParams } }, async (req) => {
-      accessIssue(req, req.params.id, "viewer");
+      accessIssue(req, req.params.id);
       return detail(req.params.id);
     });
 
@@ -239,8 +246,9 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
       "/api/issues",
       { bodyLimit: 16 * 1024 * 1024, schema: { body: { type: "object", required: ["projectId", "title"], properties: { projectId: ID, ...issueFields } } } },
       async (req, reply) => {
-        const { user } = requireProject(db, req, req.body.projectId, "editor");
+        const { user } = requireProject(db, req, req.body.projectId, "issues.create");
         const b = req.body;
+        checkTriage(user.role, b);
         checkReferences(b.projectId, b);
         const snapshot = decodeSnapshot(b.snapshot);
         const id = randomUUID();
@@ -275,8 +283,12 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
       "/api/issues/:id",
       { bodyLimit: 16 * 1024 * 1024, schema: { params: idParams, body: { type: "object", minProperties: 1, properties: issueFields } } },
       async (req) => {
-        const { row } = accessIssue(req, req.params.id, "editor");
+        const { row, user } = accessIssue(req, req.params.id);
         const b = req.body;
+        // Editors and admins edit any issue; clients only the content of issues they raised.
+        const ownIssue = row.author_id === user.id && can(user.role, "issues.editOwn");
+        if (!can(user.role, "issues.manage") && !ownIssue) throw new HttpError(403, "You can only edit issues you raised");
+        checkTriage(user.role, b);
         checkReferences(row.project_id, b);
         const sets: string[] = [];
         const values: unknown[] = [];
@@ -306,13 +318,13 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
     );
 
     app.delete<{ Params: { id: string } }>("/api/issues/:id", { schema: { params: idParams } }, async (req, reply) => {
-      accessIssue(req, req.params.id, "editor");
+      accessIssue(req, req.params.id, "issues.manage");
       db.prepare("DELETE FROM issues WHERE id = ?").run(req.params.id);
       return reply.code(204).send();
     });
 
     app.get<{ Params: { id: string } }>("/api/issues/:id/snapshot.png", { schema: { params: idParams } }, async (req, reply) => {
-      accessIssue(req, req.params.id, "viewer");
+      accessIssue(req, req.params.id);
       const row = db.prepare("SELECT snapshot FROM issues WHERE id = ?").get(req.params.id) as { snapshot: Buffer | null };
       if (!row.snapshot) throw new HttpError(404, "This issue has no snapshot");
       return reply.type("image/png").header("cache-control", "private, max-age=60").send(row.snapshot);
@@ -320,12 +332,12 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
 
     // ---- Comments ----------------------------------------------------------------------------
 
-    // Viewers may comment too: reviewing and replying is their main job.
+    // Clients comment too: reviewing and replying is their main job.
     app.post<{ Params: { id: string }; Body: { body: string } }>(
       "/api/issues/:id/comments",
       { schema: { params: idParams, body: { type: "object", required: ["body"], properties: { body: { type: "string", minLength: 1, maxLength: 20000 } } } } },
       async (req, reply) => {
-        const { user } = accessIssue(req, req.params.id, "viewer");
+        const { user } = accessIssue(req, req.params.id, "comments.create");
         db.transaction(() => {
           db.prepare("INSERT INTO issue_comments (id, issue_id, author_id, body) VALUES (?, ?, ?, ?)").run(randomUUID(), req.params.id, user.id, req.body.body.trim());
           db.prepare(`UPDATE issues SET updated_at = ${NOW} WHERE id = ?`).run(req.params.id);
@@ -339,9 +351,9 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
         | { issue_id: string; author_id: string | null }
         | undefined;
       if (!comment) throw new HttpError(404, "Comment not found");
-      const { user } = accessIssue(req, comment.issue_id, "viewer");
-      // Authors delete their own comments; project owners (and admins) any.
-      if (comment.author_id !== user.id) requireProject(db, req, db.prepare("SELECT project_id FROM issues WHERE id = ?").pluck().get(comment.issue_id) as string, "owner");
+      const { user } = accessIssue(req, comment.issue_id);
+      // Authors delete their own comments; editors and admins any.
+      if (comment.author_id !== user.id && !can(user.role, "comments.moderate")) throw new HttpError(403, "You can only delete your own comments");
       db.prepare("DELETE FROM issue_comments WHERE id = ?").run(req.params.id);
       return reply.code(204).send();
     });
@@ -352,7 +364,7 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
       "/api/projects/:id/bcf",
       { schema: { params: idParams, querystring: { type: "object", properties: { ids: { type: "string", maxLength: 40000 } } } } },
       async (req, reply) => {
-        requireProject(db, req, req.params.id, "viewer");
+        requireProject(db, req, req.params.id);
         const wanted = req.query.ids ? new Set(req.query.ids.split(",")) : null;
         const rows = (db.prepare(`${SELECT_ISSUE} WHERE i.project_id = ? ORDER BY i.number`).all(req.params.id) as IssueRow[]).filter(
           (r) => !wanted || wanted.has(r.id),
@@ -401,7 +413,7 @@ export function issueRoutes({ db, bodyLimit }: RouteContext) {
       "/api/projects/:id/bcf",
       { bodyLimit, schema: { params: idParams } },
       async (req): Promise<BcfImportResult> => {
-        const { user } = requireProject(db, req, req.params.id, "editor");
+        const { user } = requireProject(db, req, req.params.id, "bcf.import");
         if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, "Send the .bcfzip as application/octet-stream");
         let topics: BcfTopic[];
         try {

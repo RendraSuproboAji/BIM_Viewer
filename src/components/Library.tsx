@@ -5,8 +5,9 @@ import { useApi } from "../api/useApi";
 import { errorMessage } from "../bim/actions";
 import { prettyCategory } from "../bim/format";
 import { applyView, captureView, deleteFromLibrary, goToElement, openFromLibrary } from "../bim/library";
-import { useCanEdit } from "../bim/session";
+import { useCan } from "../bim/session";
 import { useViewer } from "../bim/store";
+import { NoProject } from "./ProjectMenu";
 
 /** Server-side model library, saved views and element search. */
 export function Library() {
@@ -21,7 +22,7 @@ export function Library() {
       </p>
     );
   }
-  if (!projectId) return <p className="empty">Open or create a project (toolbar) to use the library.</p>;
+  if (!projectId) return <NoProject what="use the library" />;
   return (
     <div className="library">
       <Models projectId={projectId} />
@@ -33,7 +34,7 @@ export function Library() {
 
 function Models({ projectId }: { projectId: string }) {
   const models = useApi(() => api.listModels(projectId), [projectId]);
-  const canEdit = useCanEdit();
+  const canEdit = useCan("models.write");
   const open = useViewer((s) => s.models);
   const setError = useViewer((s) => s.setError);
 
@@ -76,7 +77,7 @@ function Models({ projectId }: { projectId: string }) {
 
 function Views({ projectId }: { projectId: string }) {
   const views = useApi(() => api.listViews(projectId), [projectId]);
-  const canEdit = useCanEdit();
+  const canEdit = useCan("views.write");
   const [name, setName] = useState("");
   const { bumpLibrary, setError } = useViewer.getState();
   const hasModels = useViewer((s) => s.models.length > 0);

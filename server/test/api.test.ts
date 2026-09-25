@@ -324,7 +324,7 @@ describe("database", () => {
     const file = join(dir, "reopen.sqlite");
     openDatabase(file).close();
     const db = openDatabase(file);
-    assert.equal(db.pragma("user_version", { simple: true }), 2);
+    assert.equal(db.pragma("user_version", { simple: true }), 3);
     db.close();
     rmSync(dir, { recursive: true, force: true });
   });

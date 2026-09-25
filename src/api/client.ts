@@ -12,7 +12,6 @@ import type {
   NewIssue,
   Project,
   ProjectMember,
-  ProjectRole,
   User,
   UserRole,
   ViewRecord,
@@ -99,7 +98,7 @@ export const api = {
   renameProject: (id: string, name: string) => request<Project>(`/projects/${id}`, json("PATCH", { name })),
   deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: "DELETE" }),
   listMembers: (projectId: string) => request<ProjectMember[]>(`/projects/${projectId}/members`),
-  setMember: (projectId: string, userId: string, role: ProjectRole) => request<ProjectMember[]>(`/projects/${projectId}/members`, json("PUT", { userId, role })),
+  addMember: (projectId: string, userId: string) => request<ProjectMember[]>(`/projects/${projectId}/members`, json("PUT", { userId })),
   removeMember: (projectId: string, userId: string) => request<ProjectMember[]>(`/projects/${projectId}/members/${userId}`, { method: "DELETE" }),
 
   // ---- Models & BIM data ----
