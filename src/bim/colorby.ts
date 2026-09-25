@@ -20,6 +20,8 @@ export async function applyColorBy(key: FieldKey, numeric: boolean) {
     setLoading({ label: "Reading element data", progress: 0 });
     const data = await openModelElements((_, p) => setLoading({ label: "Reading element data", progress: p }));
     const legend = colorLegend(data, key, numeric);
+    // Elements hidden through the previous legend would otherwise stay hidden and be forgotten.
+    await restoreHidden(useViewer.getState().colorBy);
     await resetColors();
     for (const entry of legend) {
       const color = new THREE.Color(entry.color);
@@ -38,16 +40,19 @@ async function resetColors() {
   for (const model of engine.models.values()) await model.resetColor(undefined);
 }
 
-export async function clearColorBy() {
-  const state = useViewer.getState().colorBy;
-  await resetColors();
-  if (state?.hidden.length) {
-    for (const entry of state.legend) {
-      if (!state.hidden.includes(entry.label)) continue;
-      for (const [modelId, ids] of Object.entries(entry.items)) await engine.getModel(modelId)?.setVisible(ids, true);
-    }
-    useViewer.getState().bumpVisibility();
+async function restoreHidden(state: ColorByState | null) {
+  if (!state?.hidden.length) return;
+  for (const entry of state.legend) {
+    if (!state.hidden.includes(entry.label)) continue;
+    for (const [modelId, ids] of Object.entries(entry.items)) await engine.getModel(modelId)?.setVisible(ids, true);
   }
+  useViewer.setState({ colorBy: { ...state, hidden: [] } });
+  useViewer.getState().bumpVisibility();
+}
+
+export async function clearColorBy() {
+  await restoreHidden(useViewer.getState().colorBy);
+  await resetColors();
   useViewer.setState({ colorBy: null });
   await engine.update(true);
 }

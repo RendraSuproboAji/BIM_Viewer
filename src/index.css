@@ -109,7 +109,7 @@ a.button { color: var(--text); background: var(--hover); border: 1px solid var(-
 input:not([type]), input[type=text], textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; min-width: 0; }
 .inline-form, .search-form { display: flex; gap: 6px; padding: 4px 12px; flex-wrap: wrap; align-items: center; }
 .inline-form input, .search-form input { flex: 1; }
-.search-form select { flex: 1; }
+.search-form select { flex: 1; min-width: 0; max-width: 100%; }
 .row.result { cursor: pointer; }
 .pager { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; }
 .notes { border-top: 1px solid var(--border); display: flex; flex-direction: column; max-height: 45%; min-height: 0; }
@@ -185,3 +185,26 @@ button.danger { border-color: #a33; color: #ff8a80; }
 .comment .icon { opacity: 1; }
 .notes h2 { display: flex; justify-content: space-between; align-items: center; }
 .notes h2 .link { text-transform: none; letter-spacing: 0; font-size: 12px; }
+
+/* ---- Data: colour by + takeoff ---- */
+.legend { padding: 4px 0; }
+.legend-title { padding: 2px 12px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 1px solid #0006; }
+.row.dim { opacity: 0.45; }
+label.check-row.small { font-size: 12px; display: flex; gap: 6px; align-items: center; color: var(--text); }
+.takeoff { display: grid; grid-template-columns: 240px 1fr; gap: 12px; min-height: 360px; }
+.takeoff-controls { display: flex; flex-direction: column; gap: 10px; }
+.takeoff-controls label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.takeoff-controls label.check-row { flex-direction: row; color: var(--text); }
+.quantity-picker { display: flex; flex-direction: column; gap: 4px; }
+.quantity-list { max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
+.quantity-list label { display: flex; gap: 6px; align-items: flex-start; padding: 2px 0; word-break: break-word; }
+.takeoff-table-wrap { overflow: auto; max-height: calc(100vh - 180px); border: 1px solid var(--border); border-radius: 6px; }
+.takeoff-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.takeoff-table th, .takeoff-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.takeoff-table .num { text-align: right; }
+.takeoff-table thead th { position: sticky; top: 0; background: var(--panel); }
+.takeoff-table tfoot th { position: sticky; bottom: 0; background: var(--panel); border-top: 2px solid var(--border); }
+.takeoff-table tbody tr { cursor: pointer; }
+.takeoff-table tbody tr:hover { background: var(--hover); }
+@media (max-width: 700px) { .takeoff { grid-template-columns: 1fr; } }
