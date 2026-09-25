@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { hideSelection, isolateSelection, loadFiles, loadUrl, SAMPLE_IFC_URL, select, setGhost, showAll } from "../bim/actions";
-import { useCanEdit } from "../bim/session";
+import { useCan } from "../bim/session";
 import { useViewer, type SectionAxis } from "../bim/store";
 import { ProjectMenu } from "./ProjectMenu";
 
@@ -13,7 +13,7 @@ export function Toolbar() {
   const requestFit = useViewer((s) => s.requestFit);
   const hasModels = useViewer((s) => s.models.length > 0);
   const tool = useViewer((s) => s.tool);
-  const canEdit = useCanEdit();
+  const canCreateIssue = useCan("issues.create");
   const setNewIssueOpen = useViewer((s) => s.setNewIssueOpen);
   const setTool = useViewer((s) => s.setTool);
 
@@ -45,7 +45,7 @@ export function Toolbar() {
         <button disabled={!selection} onClick={hideSelection}>Hide</button>
         <button disabled={!hasModels} onClick={showAll} title="Show every element, including spaces and openings">Show all</button>
         <button disabled={!selection} onClick={() => select(null)}>Clear selection</button>
-        {canEdit && (
+        {canCreateIssue && (
           <button disabled={!hasModels} onClick={() => setNewIssueOpen(true)} title="Create an issue with the current view">
             + Issue
           </button>

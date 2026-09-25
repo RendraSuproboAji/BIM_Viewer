@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InjectOptions } from "fastify";
 import type { Project, User } from "../../shared/api.ts";
+import type { Role } from "../../shared/permissions.ts";
 import { buildApp } from "../src/app.ts";
 
 /** A test server with a temp data dir, plus helpers to act as signed-in users. */
@@ -27,9 +28,9 @@ export async function testServer(options: { staticDir?: string } = {}) {
     return { cookie: cookieOf(res), user: res.json() as User };
   }
 
-  /** Admin creates a member and signs them in. */
-  async function createMember(adminCookie: string, email: string, name = email.split("@")[0]) {
-    const created = await as(adminCookie, { method: "POST", url: "/api/users", payload: { email, name, password: "password123" } });
+  /** Admin creates a user with a role (editor by default) and signs them in. */
+  async function createMember(adminCookie: string, email: string, role: Role = "editor", name = email.split("@")[0]) {
+    const created = await as(adminCookie, { method: "POST", url: "/api/users", payload: { email, name, password: "password123", role } });
     if (created.statusCode !== 201) throw new Error(created.body);
     const login = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password: "password123" } });
     return { cookie: cookieOf(login), user: created.json() as User };
@@ -39,6 +40,12 @@ export async function testServer(options: { staticDir?: string } = {}) {
     const res = await as(cookie, { method: "POST", url: "/api/projects", payload: { name } });
     if (res.statusCode !== 201) throw new Error(res.body);
     return res.json() as Project;
+  }
+
+  /** Admin adds a user to a project. */
+  async function addMember(adminCookie: string, projectId: string, userId: string) {
+    const res = await as(adminCookie, { method: "PUT", url: `/api/projects/${projectId}/members`, payload: { userId } });
+    if (res.statusCode !== 200) throw new Error(res.body);
   }
 
   async function uploadModel(cookie: string, projectId: string, name = "house.ifc", bytes = Buffer.from([1, 2, 3, 4])) {
@@ -58,6 +65,7 @@ export async function testServer(options: { staticDir?: string } = {}) {
     setupAdmin,
     createMember,
     createProject,
+    addMember,
     uploadModel,
     close: async () => {
       await app.close();

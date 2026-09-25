@@ -231,3 +231,13 @@ button.link.small { font-size: 12px; }
 .diff-table td { padding: 2px 4px; word-break: break-word; }
 .diff-table td.before { color: #ff8a80; text-decoration: line-through; }
 .diff-table td.after { color: #7ee787; }
+
+/* Roles */
+.role-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; line-height: 16px; font-weight: 600; vertical-align: middle; }
+.role-admin { background: #5a2d82; color: #f0e3ff; }
+.role-editor { background: #1f4f8a; color: #dcebff; }
+.role-client { background: #2f5b3a; color: #dff5e4; }
+.role-legend { margin: 0; display: grid; gap: 6px; }
+.role-legend div { display: grid; grid-template-columns: 80px 1fr; align-items: baseline; gap: 8px; }
+.role-legend dt .role-badge { margin-left: 0; }
+.role-legend dd { margin: 0; }

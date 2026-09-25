@@ -3,7 +3,8 @@ import { createReadStream, existsSync } from "node:fs";
 import { rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { CategoryCount, ElementRecord, ElementSearchResponse, ModelRecord, ProjectRole } from "../../../shared/api.ts";
+import type { CategoryCount, ElementRecord, ElementSearchResponse, ModelRecord } from "../../../shared/api.ts";
+import type { Permission } from "../../../shared/permissions.ts";
 import { HttpError, requireProject } from "../auth.ts";
 import { safeFileName, toCsv } from "../csv.ts";
 import { ID, idParams, type RouteContext } from "./context.ts";
@@ -53,11 +54,11 @@ export function modelRoutes({ db, dataDir, bodyLimit }: RouteContext) {
   const getModel = db.prepare<[string], ModelRow>("SELECT * FROM models WHERE id = ?");
 
   /** Loads a model and checks the user's rights on its project (404 if either is missing). */
-  function accessModel(req: FastifyRequest, id: string, minimum: ProjectRole) {
+  function accessModel(req: FastifyRequest, id: string, permission?: Permission) {
     const row = getModel.get(id);
     if (!row) throw new HttpError(404, "Model not found");
     try {
-      requireProject(db, req, row.project_id, minimum);
+      requireProject(db, req, row.project_id, permission);
     } catch (e) {
       // Don't reveal that a model exists in a project the user can't see.
       if (e instanceof HttpError && e.statusCode === 404) throw new HttpError(404, "Model not found");
@@ -68,7 +69,7 @@ export function modelRoutes({ db, dataDir, bodyLimit }: RouteContext) {
 
   return async (app: FastifyInstance) => {
     app.get<{ Querystring: { projectId: string } }>("/api/models", { schema: { querystring: projectQuery } }, async (req) => {
-      requireProject(db, req, req.query.projectId, "viewer");
+      requireProject(db, req, req.query.projectId);
       return (db.prepare("SELECT * FROM models WHERE project_id = ? ORDER BY created_at DESC").all(req.query.projectId) as ModelRow[]).map(toModel);
     });
 
@@ -85,7 +86,7 @@ export function modelRoutes({ db, dataDir, bodyLimit }: RouteContext) {
         },
       },
       async (req, reply) => {
-        requireProject(db, req, req.query.projectId, "editor");
+        requireProject(db, req, req.query.projectId, "models.write");
         if (!Buffer.isBuffer(req.body) || req.body.length === 0) throw new HttpError(400, "Send the .frag bytes as application/octet-stream");
         const id = randomUUID();
         await writeFile(modelFile(id), req.body);
@@ -105,10 +106,10 @@ export function modelRoutes({ db, dataDir, bodyLimit }: RouteContext) {
       },
     );
 
-    app.get<{ Params: { id: string } }>("/api/models/:id", { schema: { params: idParams } }, async (req) => toModel(accessModel(req, req.params.id, "viewer")));
+    app.get<{ Params: { id: string } }>("/api/models/:id", { schema: { params: idParams } }, async (req) => toModel(accessModel(req, req.params.id)));
 
     app.get<{ Params: { id: string } }>("/api/models/:id/file", { schema: { params: idParams } }, async (req, reply) => {
-      accessModel(req, req.params.id, "viewer");
+      accessModel(req, req.params.id);
       const file = modelFile(req.params.id);
       if (!existsSync(file)) throw new HttpError(404, "Model file not found");
       // Streamed, so large models are never held in memory.
@@ -116,7 +117,7 @@ export function modelRoutes({ db, dataDir, bodyLimit }: RouteContext) {
     });
 
     app.delete<{ Params: { id: string } }>("/api/models/:id", { schema: { params: idParams } }, async (req, reply) => {
-      accessModel(req, req.params.id, "editor");
+      accessModel(req, req.params.id, "models.write");
       // Elements go with it; issues keep their components but lose the model link.
       db.prepare("DELETE FROM models WHERE id = ?").run(req.params.id);
       await rm(modelFile(req.params.id), { force: true });
@@ -155,7 +156,7 @@ export function modelRoutes({ db, dataDir, bodyLimit }: RouteContext) {
         },
       },
       async (req) => {
-        const modelId = accessModel(req, req.params.id, "editor").id;
+        const modelId = accessModel(req, req.params.id, "models.write").id;
         // Replace the whole set atomically so re-saving a model never leaves stale rows.
         const insert = db.prepare(
           `INSERT INTO elements (model_id, local_id, guid, category, name, storey, properties)
@@ -181,7 +182,7 @@ export function modelRoutes({ db, dataDir, bodyLimit }: RouteContext) {
     );
 
     app.get<{ Params: { id: string } }>("/api/models/:id/elements.csv", { schema: { params: idParams } }, async (req, reply) => {
-      const model = accessModel(req, req.params.id, "viewer");
+      const model = accessModel(req, req.params.id);
       const rows = (db.prepare("SELECT * FROM elements WHERE model_id = ? ORDER BY category, name, local_id").all(model.id) as ElementRow[]).map(toElement);
       return reply
         .type("text/csv; charset=utf-8")
@@ -208,7 +209,7 @@ export function modelRoutes({ db, dataDir, bodyLimit }: RouteContext) {
         },
       },
       async (req): Promise<ElementSearchResponse> => {
-        requireProject(db, req, req.query.projectId, "viewer");
+        requireProject(db, req, req.query.projectId);
         const { q: text, category, modelId, limit = 50, offset = 0 } = req.query;
         const where = ["m.project_id = @projectId"];
         const params: Record<string, unknown> = { projectId: req.query.projectId, limit, offset };
@@ -243,7 +244,7 @@ export function modelRoutes({ db, dataDir, bodyLimit }: RouteContext) {
       "/api/elements/categories",
       { schema: { querystring: { type: "object", required: ["projectId"], properties: { projectId: ID, modelId: ID } } } },
       async (req): Promise<CategoryCount[]> => {
-        requireProject(db, req, req.query.projectId, "viewer");
+        requireProject(db, req, req.query.projectId);
         const byModel = req.query.modelId ? "AND e.model_id = @modelId" : "";
         return db
           .prepare(

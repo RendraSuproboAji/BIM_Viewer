@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AuthStatus, User, UserRole } from "../../../shared/api.ts";
+import { can, ROLES } from "../../../shared/permissions.ts";
 import {
   clearLoginFailures,
   createSession,
@@ -24,7 +25,7 @@ import { idParams, type RouteContext } from "./context.ts";
 const email = { type: "string", format: "email", maxLength: 254 } as const;
 const password = { type: "string", minLength: PASSWORD_MIN_LENGTH, maxLength: 200 } as const;
 const name = { type: "string", minLength: 1, maxLength: 120 } as const;
-const role = { type: "string", enum: ["admin", "member"] } as const;
+const role = { type: "string", enum: [...ROLES] } as const;
 
 export function authRoutes({ db }: RouteContext) {
   const userCount = () => (db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n;
@@ -79,8 +80,8 @@ export function authRoutes({ db }: RouteContext) {
             passwordHash,
           );
         })();
-        // The first admin owns the project that pre-existing data was migrated into.
-        db.prepare("INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?, ?, 'owner')").run(DEFAULT_PROJECT_ID, id);
+        // The first admin is listed on the project that pre-existing data was migrated into.
+        db.prepare("INSERT OR IGNORE INTO project_members (project_id, user_id) VALUES (?, ?)").run(DEFAULT_PROJECT_ID, id);
         startSession(req, reply, id);
         return reply.code(201).send(getUser(id));
       },
@@ -141,10 +142,22 @@ export function authRoutes({ db }: RouteContext) {
 
     // ---- Users -------------------------------------------------------------------------------
 
-    // Everyone signed in can see who they can assign issues to.
+    // Admins see every account. Everyone else sees the people they share a project with
+    // (and the admins), which is who they can assign issues to: a client doesn't learn
+    // about other clients' projects.
     app.get("/api/users", async (req): Promise<User[]> => {
-      requireUser(req);
-      return (db.prepare("SELECT * FROM users ORDER BY name COLLATE NOCASE").all() as Parameters<typeof toUser>[0][]).map(toUser);
+      const me = requireUser(req);
+      const rows = can(me.role, "users.manage")
+        ? db.prepare("SELECT * FROM users ORDER BY name COLLATE NOCASE").all()
+        : db
+            .prepare(
+              `SELECT * FROM users u WHERE u.id = @me OR u.role = 'admin' OR EXISTS (
+                 SELECT 1 FROM project_members mine JOIN project_members theirs ON theirs.project_id = mine.project_id
+                 WHERE mine.user_id = @me AND theirs.user_id = u.id)
+               ORDER BY u.name COLLATE NOCASE`,
+            )
+            .all({ me: me.id });
+      return (rows as Parameters<typeof toUser>[0][]).map(toUser);
     });
 
     app.post<{ Body: { email: string; name: string; password: string; role?: UserRole } }>(
@@ -152,9 +165,8 @@ export function authRoutes({ db }: RouteContext) {
       { schema: { body: { type: "object", required: ["email", "name", "password"], properties: { email, name, password, role } } } },
       async (req, reply) => {
         requireAdmin(req);
-        const id = await createUser({ ...req.body, role: req.body.role ?? "member" });
-        // New users see the migrated default project, so existing data stays reachable.
-        db.prepare("INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?, ?, 'editor')").run(DEFAULT_PROJECT_ID, id);
+        // Least privilege by default; new accounts see no projects until an admin adds them.
+        const id = await createUser({ ...req.body, role: req.body.role ?? "client" });
         return reply.code(201).send(getUser(id));
       },
     );
@@ -166,11 +178,11 @@ export function authRoutes({ db }: RouteContext) {
         const me = requireUser(req);
         const target = getUser(req.params.id);
         if (!target) throw new HttpError(404, "User not found");
-        const isAdmin = me.role === "admin";
+        const isAdmin = can(me.role, "users.manage");
         if (!isAdmin && me.id !== target.id) throw new HttpError(403, "You can only change your own account");
         if (req.body.role && !isAdmin) throw new HttpError(403, "Only administrators can change roles");
         if (req.body.password && !isAdmin) throw new HttpError(403, "Use the change-password form");
-        if (req.body.role === "member" && target.role === "admin") {
+        if (req.body.role && req.body.role !== "admin" && target.role === "admin") {
           const admins = (db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get() as { n: number }).n;
           if (admins <= 1) throw new HttpError(409, "There must be at least one administrator");
         }

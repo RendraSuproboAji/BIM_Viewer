@@ -4,6 +4,7 @@ import { exportFrag, removeModel, select, setItemsVisible, setModelVisible } fro
 import { engine } from "../bim/engine";
 import { prettyCategory } from "../bim/format";
 import { saveToLibrary } from "../bim/library";
+import { useCan } from "../bim/session";
 import { useViewer, type ModelInfo } from "../bim/store";
 
 /** Rows rendered per node before "Show more", so huge storeys stay responsive. */
@@ -37,6 +38,8 @@ export function ModelTree() {
 }
 
 function ModelNode({ info }: { info: ModelInfo }) {
+  // Saving to the library needs the server and a role that may add models.
+  const canSave = useCan("models.write");
   const [tree, setTree] = useState<SpatialTreeItem | null>(null);
   const [names, setNames] = useState<Map<number, string>>(new Map());
   const [geometry, setGeometry] = useState<Set<number>>(new Set());
@@ -97,7 +100,7 @@ function ModelNode({ info }: { info: ModelInfo }) {
         </IconButton>
         {info.libraryId ? (
           <span className="icon saved" title="Saved in the library">✓</span>
-        ) : (
+        ) : canSave && (
           <IconButton
             title={saving ? "Saving…" : "Save to library (model + BIM data)"}
             disabled={saving}

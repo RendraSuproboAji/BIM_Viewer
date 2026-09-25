@@ -168,6 +168,43 @@ const MIGRATIONS: string[] = [
     SELECT id, model_id, element_guid, element_name, category FROM notes;
   DROP TABLE notes;
   `,
+
+  // 3: role-based access control. One role per account (admin / editor / client);
+  //    project membership only decides which projects a user sees.
+  //    Former members who owned or edited any project become editors; members who
+  //    were only ever viewers become clients.
+  `
+  CREATE TABLE users_new (
+    id            TEXT PRIMARY KEY,
+    email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name          TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'client' CHECK (role IN ('admin', 'editor', 'client')),
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  INSERT INTO users_new (id, email, name, password_hash, role, created_at)
+    SELECT id, email, name, password_hash,
+      CASE
+        WHEN role = 'admin' THEN 'admin'
+        WHEN EXISTS (SELECT 1 FROM project_members m WHERE m.user_id = users.id AND m.role IN ('owner', 'editor')) THEN 'editor'
+        WHEN EXISTS (SELECT 1 FROM project_members m WHERE m.user_id = users.id) THEN 'client'
+        ELSE 'editor'
+      END,
+      created_at
+    FROM users;
+  DROP TABLE users;
+  ALTER TABLE users_new RENAME TO users;
+
+  CREATE TABLE project_members_new (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (project_id, user_id)
+  );
+  INSERT INTO project_members_new (project_id, user_id) SELECT project_id, user_id FROM project_members;
+  DROP TABLE project_members;
+  ALTER TABLE project_members_new RENAME TO project_members;
+  CREATE INDEX project_members_user ON project_members(user_id);
+  `,
 ];
 
 export type Db = Database.Database;

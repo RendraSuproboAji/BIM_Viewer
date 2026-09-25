@@ -2,6 +2,7 @@ import type { User } from "../../shared/api";
 import { api, newSessionEpoch, setUnauthorizedHandler } from "../api/client";
 import { HIDDEN_BY_DEFAULT } from "./ifc-classes";
 import { removeModel, select } from "./actions";
+import { can, type Permission } from "../../shared/permissions";
 import { useViewer } from "./store";
 
 const lastProjectKey = (user: User) => `bim:lastProject:${user.id}`;
@@ -81,15 +82,7 @@ setUnauthorizedHandler(() => {
   if (useViewer.getState().user) void signOut();
 });
 
-export function currentRole() {
-  const { projects, projectId } = useViewer.getState();
-  return projects.find((p) => p.id === projectId)?.role ?? null;
-}
-
-/** Whether the user may change models, views and issues in the current project. */
-export function useCanEdit() {
-  return useViewer((s) => {
-    const role = s.projects.find((p) => p.id === s.projectId)?.role;
-    return role === "owner" || role === "editor";
-  });
+/** Whether the signed-in user's role grants a permission (see shared/permissions.ts). */
+export function useCan(permission: Permission) {
+  return useViewer((s) => can(s.user?.role, permission));
 }

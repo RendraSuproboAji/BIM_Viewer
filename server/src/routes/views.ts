@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { ProjectRole, ViewRecord, ViewState } from "../../../shared/api.ts";
+import type { ViewRecord, ViewState } from "../../../shared/api.ts";
+import type { Permission } from "../../../shared/permissions.ts";
 import { HttpError, requireProject } from "../auth.ts";
 import { ID, idParams, NOW, type RouteContext } from "./context.ts";
 
@@ -49,11 +50,11 @@ export const viewStateSchema = {
 const name = { type: "string", minLength: 1, maxLength: 255 } as const;
 
 export function viewRoutes({ db }: RouteContext) {
-  function accessView(req: FastifyRequest, id: string, minimum: ProjectRole) {
+  function accessView(req: FastifyRequest, id: string, permission?: Permission) {
     const row = db.prepare<[string], ViewRow>("SELECT * FROM views WHERE id = ?").get(id);
     if (!row) throw new HttpError(404, "View not found");
     try {
-      requireProject(db, req, row.project_id, minimum);
+      requireProject(db, req, row.project_id, permission);
     } catch (e) {
       if (e instanceof HttpError && e.statusCode === 404) throw new HttpError(404, "View not found");
       throw e;
@@ -66,7 +67,7 @@ export function viewRoutes({ db }: RouteContext) {
       "/api/views",
       { schema: { querystring: { type: "object", required: ["projectId"], properties: { projectId: ID } } } },
       async (req) => {
-        requireProject(db, req, req.query.projectId, "viewer");
+        requireProject(db, req, req.query.projectId);
         return (db.prepare("SELECT * FROM views WHERE project_id = ? ORDER BY updated_at DESC").all(req.query.projectId) as ViewRow[]).map(toView);
       },
     );
@@ -75,7 +76,7 @@ export function viewRoutes({ db }: RouteContext) {
       "/api/views",
       { schema: { body: { type: "object", required: ["projectId", "name", "state"], properties: { projectId: ID, name, state: viewStateSchema } } } },
       async (req, reply) => {
-        requireProject(db, req, req.body.projectId, "editor");
+        requireProject(db, req, req.body.projectId, "views.write");
         const id = randomUUID();
         db.prepare("INSERT INTO views (id, project_id, name, state) VALUES (?, ?, ?, ?)").run(id, req.body.projectId, req.body.name, JSON.stringify(req.body.state));
         return reply.code(201).send(toView(db.prepare<[string], ViewRow>("SELECT * FROM views WHERE id = ?").get(id)!));
@@ -86,14 +87,14 @@ export function viewRoutes({ db }: RouteContext) {
       "/api/views/:id",
       { schema: { params: idParams, body: { type: "object", required: ["name", "state"], properties: { name, state: viewStateSchema } } } },
       async (req) => {
-        accessView(req, req.params.id, "editor");
+        accessView(req, req.params.id, "views.write");
         db.prepare(`UPDATE views SET name = ?, state = ?, updated_at = ${NOW} WHERE id = ?`).run(req.body.name, JSON.stringify(req.body.state), req.params.id);
         return toView(db.prepare<[string], ViewRow>("SELECT * FROM views WHERE id = ?").get(req.params.id)!);
       },
     );
 
     app.delete<{ Params: { id: string } }>("/api/views/:id", { schema: { params: idParams } }, async (req, reply) => {
-      accessView(req, req.params.id, "editor");
+      accessView(req, req.params.id, "views.write");
       db.prepare("DELETE FROM views WHERE id = ?").run(req.params.id);
       return reply.code(204).send();
     });

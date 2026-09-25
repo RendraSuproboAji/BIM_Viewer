@@ -1,6 +1,7 @@
 import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual, type ScryptOptions } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { ProjectRole, User, UserRole } from "../../shared/api.ts";
+import type { User, UserRole } from "../../shared/api.ts";
+import { can, type Permission } from "../../shared/permissions.ts";
 import type { Db } from "./db.ts";
 
 // ---- Passwords (scrypt, per-user salt) ----------------------------------------------------------
@@ -127,37 +128,39 @@ export function requireUser(req: FastifyRequest): User {
   return req.user;
 }
 
-export function requireAdmin(req: FastifyRequest): User {
+/** Checks the signed-in user's role grants a permission (403 otherwise). */
+export function requirePermission(req: FastifyRequest, permission: Permission, message = "Your role doesn't allow this"): User {
   const user = requireUser(req);
-  if (user.role !== "admin") throw new HttpError(403, "Only administrators can do this");
+  if (!can(user.role, permission)) throw new HttpError(403, message);
   return user;
 }
 
-const RANK: Record<ProjectRole, number> = { viewer: 0, editor: 1, owner: 2 };
-
-/** The user's role in a project; admins act as owners everywhere. Null when not a member. */
-export function projectRole(db: Db, user: User, projectId: string): ProjectRole | null {
-  const exists = db.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId);
-  if (!exists) return null;
-  if (user.role === "admin") return "owner";
-  const row = db
-    .prepare<[string, string], { role: ProjectRole }>("SELECT role FROM project_members WHERE project_id = ? AND user_id = ?")
-    .get(projectId, user.id);
-  return row?.role ?? null;
+export function requireAdmin(req: FastifyRequest): User {
+  return requirePermission(req, "users.manage", "Only administrators can do this");
 }
 
+/** Whether a user may see a project: admins see all, others only projects they're members of. */
+export function hasProjectAccess(db: Db, user: User, projectId: string) {
+  if (!db.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)) return false;
+  if (can(user.role, "projects.seeAll")) return true;
+  return !!db.prepare("SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?").get(projectId, user.id);
+}
+
+const ROLE_DENIED: Record<UserRole, string> = {
+  admin: "Not allowed",
+  editor: "Editors can't do this",
+  client: "Clients can view, comment and raise issues, but can't change this",
+};
+
 /**
- * Checks the user may act on a project with at least `minimum` rights.
+ * Checks the user can see a project and, when given, that their role grants `permission`.
  * Non-members get 404 (not 403) so project ids can't be probed.
  */
-export function requireProject(db: Db, req: FastifyRequest, projectId: string | undefined, minimum: ProjectRole = "viewer") {
+export function requireProject(db: Db, req: FastifyRequest, projectId: string | undefined, permission?: Permission) {
   const user = requireUser(req);
-  const role = projectId ? projectRole(db, user, projectId) : null;
-  if (!role) throw new HttpError(404, "Project not found");
-  if (RANK[role] < RANK[minimum]) {
-    throw new HttpError(403, minimum === "owner" ? "Only project owners can do this" : "You have read-only access to this project");
-  }
-  return { user, role };
+  if (!projectId || !hasProjectAccess(db, user, projectId)) throw new HttpError(404, "Project not found");
+  if (permission && !can(user.role, permission)) throw new HttpError(403, ROLE_DENIED[user.role]);
+  return { user };
 }
 
 export function sendError(reply: FastifyReply, error: HttpError) {

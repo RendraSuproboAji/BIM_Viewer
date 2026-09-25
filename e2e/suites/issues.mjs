@@ -40,12 +40,16 @@ try {
   // ---- Users and projects -----------------------------------------------------------------------------
   await page.click(".project-menu button");
   await page.locator(".modal .tabs button", { hasText: "Users" }).click();
-  await page.fill(".grid-form input[aria-label=Name]", "Bob Viewer");
+  await page.fill(".grid-form input[aria-label=Name]", "Bob Client");
   await page.fill(".grid-form input[aria-label=E-mail]", "bob@example.com");
   await page.fill(".grid-form input[aria-label='Initial password']", "password123");
+  check("new users default to the least-privileged role", (await page.locator(".grid-form select[aria-label=Role]").inputValue()) === "client");
+  await page.locator(".grid-form select[aria-label=Role]").selectOption("client");
   await page.click(".grid-form button");
   await settle(page);
-  check("admin creates a user", (await page.locator(".modal .grid-table").innerText()).includes("bob@example.com"));
+  check("admin creates a client", (await page.locator(".modal .grid-table").innerText()).includes("bob@example.com") &&
+    (await page.locator(".modal select[aria-label='Role of Bob Client']").inputValue()) === "client");
+  check("roles are explained", (await page.locator(".modal .role-legend").innerText()).includes("Client"));
   await page.keyboard.press("Escape");
   await page.locator(".project-menu select").selectOption("__new");
   await page.fill(".modal input", "Tower A");
@@ -53,11 +57,10 @@ try {
   await page.waitForFunction(() => document.querySelector(".project-menu select option:checked")?.textContent === "Tower A", null, { timeout: 10000 });
   check("new project created and opened", true);
   await page.click(".project-menu button");
-  await page.locator(".modal select[aria-label='User to add']").selectOption({ label: "Bob Viewer (bob@example.com)" });
-  await page.locator(".modal select[aria-label=Role]").selectOption("viewer");
+  await page.locator(".modal select[aria-label='User to add']").selectOption({ label: "Bob Client (bob@example.com) · Client" });
   await page.click(".modal button:has-text('Add member')");
   await settle(page);
-  check("owner adds a viewer to the project", (await page.locator(".modal .grid-table").innerText()).includes("Bob Viewer"));
+  check("admin adds the client to the project; members show their role", /Bob Client[\s\S]*Client/.test(await page.locator(".modal .grid-table").innerText()));
   await page.keyboard.press("Escape");
 
   // ---- Issue from a selection, with viewpoint + snapshot -----------------------------------------------
@@ -210,19 +213,45 @@ try {
   check("viewer sees Tower A (and the default project), not other projects", bobProjects.includes("Tower A") && !bobProjects.includes("Import target"), JSON.stringify(bobProjects));
   check("a project is opened right after sign-in", opened && !bobProjects.includes("No project"), JSON.stringify(bobProjects));
   check("previous user's section state doesn't leak", (await page.locator("button.active", { hasText: "Section" }).count()) === 0);
+  check("clients can't create projects", !(await page.locator(".project-menu select option").allInnerTexts()).some((o) => o.includes("New project")));
   await page.locator(".project-menu select").selectOption({ label: "Tower A" });
   await settle(page);
+  await tab(page, "Library");
+  await page.waitForSelector(".library h3:has-text('Saved views')", { timeout: 10000 });
+  check("clients can't delete library models or save views",
+    (await page.locator(".library .card button:has-text('Delete')").count()) === 0 &&
+    (await page.locator(".library input[aria-label='View name']").count()) === 0);
   await tab(page, "Issues");
   await page.locator(".library select[aria-label='Status filter']").selectOption("");
   await page.waitForSelector(".issue-card", { timeout: 10000 });
-  check("viewer can't create issues", (await page.locator("button:has-text('+ New issue')").count()) === 0 && (await page.locator(".toolbar button:has-text('+ Issue')").count()) === 0);
-  await page.locator(".issue-card").first().click();
+  check("clients can't import BCF", (await page.locator("button:has-text('Import BCF')").count()) === 0);
+
+  // Clients raise issues, without triage fields.
+  await page.click("button:has-text('+ New issue')");
+  await page.waitForSelector(".modal", { timeout: 5000 });
+  check("the client's new-issue form has no priority, assignee or due date",
+    (await page.locator(".modal label:has-text('Priority')").count()) === 0 &&
+    (await page.locator(".modal label:has-text('Assignee')").count()) === 0 &&
+    (await page.locator(".modal label:has-text('Due')").count()) === 0);
+  await page.fill(".modal input[required]", "Client: door swings the wrong way");
+  await page.click(".modal button:has-text('Create issue')");
   await page.waitForSelector(".issue-detail", { timeout: 10000 });
-  check("viewer can't change status", await page.locator(".issue-detail label:has-text('Status') select").isDisabled());
+  check("clients raise issues", (await page.locator(".issue-detail .issue-title").inputValue()) === "Client: door swings the wrong way");
+  check("…can edit their own issue's title but not triage it or delete it",
+    !(await page.locator(".issue-detail .issue-title").isDisabled()) &&
+    (await page.locator(".issue-detail label:has-text('Status') select").isDisabled()) &&
+    (await page.locator(".issue-detail label:has-text('Assignee') select").isDisabled()) &&
+    (await page.locator(".issue-detail button:has-text('Delete issue')").count()) === 0);
+  await page.click(".issue-detail button:has-text('All issues')");
+  await page.waitForSelector(".issue-card", { timeout: 10000 });
+  await page.locator(".issue-card", { hasText: "Render crack on front wall" }).first().click();
+  await page.waitForSelector(".issue-detail", { timeout: 10000 });
+  check("clients can't edit other people's issues", (await page.locator(".issue-detail .issue-title").isDisabled()) && (await page.locator(".issue-detail label:has-text('Status') select").isDisabled()));
+  const commentsBefore = await page.locator(".issue-detail .comment").count();
   await page.fill(".issue-detail textarea[aria-label=Comment]", "Seen it, thanks");
   await page.click(".issue-detail button:has-text('Comment')");
-  await page.waitForFunction(() => document.querySelectorAll(".issue-detail .comment").length === 2, null, { timeout: 10000 });
-  check("viewer can comment", true);
+  await page.waitForFunction((n) => document.querySelectorAll(".issue-detail .comment").length === n + 1, commentsBefore, { timeout: 10000 });
+  check("clients comment", true);
 
   check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 

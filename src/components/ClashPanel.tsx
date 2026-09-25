@@ -4,7 +4,7 @@ import { CLASH_DISCIPLINES, cancelClashRun, clearClashFocus, focusClash, reportC
 import type { ClashMode } from "../bim/clash";
 import { prettyCategory } from "../bim/format";
 import type { Discipline } from "../bim/ifc-classes";
-import { useCanEdit } from "../bim/session";
+import { useCan } from "../bim/session";
 import { useViewer } from "../bim/store";
 
 /** Clash detection between two discipline sets, with results and issue creation. */
@@ -13,7 +13,7 @@ export function ClashPanel() {
   const run = useViewer((s) => s.clashRun);
   const loading = useViewer((s) => !!s.loading);
   const projectId = useViewer((s) => s.projectId);
-  const canEdit = useCanEdit();
+  const canReport = useCan("issues.create");
   const [setA, setSetA] = useState<Discipline[]>(["Architecture", "Structure"]);
   const [setB, setSetB] = useState<Discipline[]>(["MEP"]);
   const [mode, setMode] = useState<ClashMode>("hard");
@@ -114,7 +114,7 @@ export function ClashPanel() {
             {run.setA.join(" + ")} × {run.setB.join(" + ")} · {run.mode === "hard" ? `hard, ignoring < ${run.tolerance * 1000} mm` : `clearance ${run.tolerance * 1000} mm`} ·{" "}
             {run.candidates} pairs tested in {(run.durationMs / 1000).toFixed(1)} s
           </p>
-          {canEdit && projectId && run.results.length > 0 && (
+          {canReport && projectId && run.results.length > 0 && (
             <div className="inline-form">
               <button onClick={reportAll} disabled={!!busy || Object.keys(run.reported).length === run.results.length}>
                 Create issues for all
@@ -148,7 +148,7 @@ export function ClashPanel() {
                   #{run.reported[i]}
                 </button>
               ) : (
-                canEdit &&
+                canReport &&
                 projectId && (
                   <button
                     className="icon visible"

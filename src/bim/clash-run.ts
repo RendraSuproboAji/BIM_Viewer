@@ -169,7 +169,6 @@ export async function reportClash(index: number) {
         ? `Clearance clash: ${(clash.distance * 1000).toFixed(0)} mm apart (required ${(clashRun.tolerance * 1000).toFixed(0)} mm).`
         : `Hard clash (intersecting geometry).`,
     type: "clash",
-    priority: "normal",
     labels: ["clash"],
     components: [clash.a, clash.b]
       .filter((e) => e.guid)
