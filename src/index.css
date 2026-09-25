@@ -1,0 +1,97 @@
+:root {
+  --bg: #15181c;
+  --panel: #1f2328;
+  --border: #30363d;
+  --text: #e6e8eb;
+  --muted: #8b949e;
+  --accent: #ffb020;
+  --hover: #2a3038;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; }
+
+button, select {
+  font: inherit;
+  color: var(--text);
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: 0.4; cursor: default; }
+button.active { background: var(--accent); color: #111; border-color: var(--accent); }
+
+.app {
+  display: grid;
+  grid-template-columns: 300px 1fr 320px;
+  grid-template-rows: auto 1fr;
+  grid-template-areas: "bar bar bar" "left stage right";
+  height: 100%;
+}
+
+.toolbar {
+  grid-area: bar;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.brand { color: var(--accent); margin-right: 8px; }
+.group { display: flex; gap: 6px; align-items: center; padding-left: 12px; border-left: 1px solid var(--border); }
+
+.panel { background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+.panel.left { grid-area: left; border-right: 1px solid var(--border); }
+.panel.right { grid-area: right; border-left: 1px solid var(--border); }
+.panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.panel-body { overflow: auto; flex: 1; padding: 6px 0; }
+
+.tabs { display: flex; border-bottom: 1px solid var(--border); }
+.tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 10px; color: var(--muted); }
+.tabs button.active { color: var(--text); box-shadow: inset 0 -2px var(--accent); }
+
+.empty { color: var(--muted); padding: 8px 12px; margin: 0; }
+
+.row { display: flex; align-items: center; gap: 4px; padding: 2px 8px; min-height: 24px; }
+.row:hover { background: var(--hover); }
+.row.selected { background: #4a3a14; }
+.row .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.model-row { font-weight: 600; }
+.muted { color: var(--muted); font-weight: normal; }
+.caret, .icon { background: none; border: 0; padding: 0 4px; width: 20px; color: var(--muted); flex: none; }
+.icon { opacity: 0; }
+.row:hover .icon, .model-row .icon { opacity: 1; }
+.check-row { cursor: pointer; }
+.badge { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.props details { border-bottom: 1px solid var(--border); }
+.props summary { padding: 8px 12px; cursor: pointer; font-weight: 600; }
+.props table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.props th, .props td { text-align: left; padding: 3px 12px; vertical-align: top; word-break: break-word; }
+.props th { color: var(--muted); font-weight: normal; width: 45%; }
+
+.stage { grid-area: stage; position: relative; min-width: 0; min-height: 0; }
+.stage.dragging::after { content: "Drop IFC / FRAG files"; position: absolute; inset: 12px; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: 12px; background: #0008; font-size: 18px; pointer-events: none; }
+.viewport { position: absolute !important; inset: 0; }
+
+.overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0009; }
+.overlay progress { width: 240px; accent-color: var(--accent); }
+.spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.toast { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; background: #5a1d1d; border: 1px solid #a33; padding: 8px 12px; border-radius: 8px; max-width: 80%; }
+.toast button { background: none; border: 0; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 50vh 1fr 1fr; grid-template-areas: "bar" "stage" "left" "right"; }
+}
