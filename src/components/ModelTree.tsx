@@ -126,11 +126,14 @@ function Children({ nodes, depth, parentCategory }: { nodes: SpatialTreeItem[]; 
   const { modelId } = useContext(TreeContext)!;
 
   // Reveal the selected element even if it sits beyond the rendered page.
-  useEffect(() => {
-    if (!selection || selection.modelId !== modelId || nodes.length <= limit) return;
-    const index = nodes.findIndex((n) => n.localId === selection.localId || containsId(n, selection.localId));
-    if (index >= limit) setLimit(index + 1);
-  }, [selection, modelId, nodes, limit]);
+  const selectedIndex = useMemo(
+    () =>
+      selection && selection.modelId === modelId && nodes.length > PAGE
+        ? nodes.findIndex((n) => n.localId === selection.localId || containsId(n, selection.localId))
+        : -1,
+    [selection, modelId, nodes],
+  );
+  if (selectedIndex >= limit) setLimit(selectedIndex + 1);
 
   return (
     <>
@@ -158,9 +161,12 @@ function TreeNode({ node, depth, parentCategory }: { node: SpatialTreeItem; dept
   const containsSelection = selection?.modelId === modelId && node.localId !== selection.localId && idSet.has(selection.localId);
 
   // Expand towards an element selected in 3D, and bring its row into view.
-  useEffect(() => {
+  // Starts false so a node mounted around the selection (its parent just opened) opens too.
+  const [revealed, setRevealed] = useState(false);
+  if (containsSelection !== revealed) {
+    setRevealed(containsSelection);
     if (containsSelection) setOpen(true);
-  }, [containsSelection]);
+  }
   useEffect(() => {
     if (isSelected) row.current?.scrollIntoView({ block: "nearest" });
   }, [isSelected]);

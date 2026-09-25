@@ -17,6 +17,11 @@ class BimEngine {
   readonly fragments: OBC.FragmentsManager;
   /** Section planes, applied per fragments material so the grid and gizmo stay unclipped. */
   private clippingPlanes: THREE.Plane[] = [];
+  /**
+   * The viewport renders on demand (R3F `frameloop="demand"`), not 60 times a second.
+   * Anything that changes what fragments shows asks for a frame through this.
+   */
+  private renderRequester: (() => void) | null = null;
 
   constructor() {
     this.fragments = this.components.get(OBC.FragmentsManager);
@@ -31,6 +36,24 @@ class BimEngine {
       material.polygonOffsetUnits = 1;
       material.polygonOffsetFactor = Math.random();
     });
+
+    // Geometry streams in from the worker after camera moves and edits: draw each change.
+    this.fragments.list.onItemSet.add(({ value: model }) => {
+      const redraw = () => this.requestRender();
+      model.onViewUpdated.add(redraw);
+      model.tiles.onItemSet.add(redraw);
+      model.tiles.onItemUpdated.add(redraw);
+      model.tiles.onItemDeleted.add(redraw);
+    });
+  }
+
+  /** Registered by the viewport: R3F's `invalidate`. */
+  setRenderRequester(requester: (() => void) | null) {
+    this.renderRequester = requester;
+  }
+
+  requestRender() {
+    this.renderRequester?.();
   }
 
   get models() {
@@ -60,6 +83,7 @@ class BimEngine {
       if (toggled) material.needsUpdate = true;
     }
     for (const model of this.fragments.list.values()) model.getClippingPlanesEvent = () => this.clippingPlanes;
+    this.requestRender();
   }
 
   getModel(modelId: string) {
@@ -73,13 +97,18 @@ class BimEngine {
    * stall selection, sign-out or project switching).
    */
   update(force = false) {
-    const request = this.fragments.core.update(force).catch(() => {});
+    this.requestRender();
+    const request = this.fragments.core.update(force).then(
+      () => this.requestRender(),
+      () => {},
+    );
     return Promise.race([request, new Promise<void>((resolve) => setTimeout(resolve, 1000))]);
   }
 
   async disposeModel(modelId: string) {
     await this.fragments.core.disposeModel(modelId);
     releaseId(modelId);
+    this.requestRender();
   }
 
   /**

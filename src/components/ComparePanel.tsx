@@ -5,6 +5,17 @@ import { useViewer } from "../bim/store";
 
 type Filter = "all" | "added" | "removed" | "changed";
 
+type ChangeKind = Exclude<Filter, "all">;
+
+function Chip({ kind, count, active, onToggle }: { kind: ChangeKind; count: number; active: boolean; onToggle: (kind: ChangeKind) => void }) {
+  return (
+    <button className={`chip-button${active ? " active" : ""}`} onClick={() => onToggle(kind)}>
+      <span className="swatch" style={{ background: COMPARE_COLORS[kind] }} />
+      {count} {kind}
+    </button>
+  );
+}
+
 /** Version comparison between two open models (by IFC GlobalId). */
 export function ComparePanel() {
   const models = useViewer((s) => s.models);
@@ -36,12 +47,7 @@ export function ComparePanel() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
-  const Chip = ({ kind, count }: { kind: Filter; count: number }) => (
-    <button className={`chip-button${filter === kind ? " active" : ""}`} onClick={() => setFilter(filter === kind ? "all" : kind)}>
-      {kind !== "all" && <span className="swatch" style={{ background: COMPARE_COLORS[kind] }} />}
-      {count} {kind}
-    </button>
-  );
+  const toggle = (kind: Filter) => setFilter(filter === kind ? "all" : kind);
 
   return (
     <section>
@@ -81,9 +87,9 @@ export function ComparePanel() {
             {name(run.beforeId)} → {name(run.afterId)} · {d.unchanged} unchanged{d.unmatched ? ` · ${d.unmatched} without GlobalId` : ""}
           </p>
           <div className="inline-form compare-chips">
-            <Chip kind="added" count={d.added.length} />
-            <Chip kind="changed" count={d.changed.length} />
-            <Chip kind="removed" count={d.removed.length} />
+            <Chip kind="added" count={d.added.length} active={filter === "added"} onToggle={toggle} />
+            <Chip kind="changed" count={d.changed.length} active={filter === "changed"} onToggle={toggle} />
+            <Chip kind="removed" count={d.removed.length} active={filter === "removed"} onToggle={toggle} />
           </div>
           <div className="compare-list">
             {(filter === "all" || filter === "added") &&
