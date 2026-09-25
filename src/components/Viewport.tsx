@@ -90,7 +90,9 @@ function Bim() {
       const box = new THREE.Box3();
       const { selection } = useViewer.getState();
       const target = fitRequest.target;
-      if (typeof target === "object") {
+      if (typeof target === "object" && "box" in target) {
+        box.set(new THREE.Vector3(...target.box[0]), new THREE.Vector3(...target.box[1]));
+      } else if (typeof target === "object") {
         const model = engine.getModel(target.modelId);
         if (model) box.union(await model.getMergedBox(target.localIds));
       } else if (target === "selection" && selection) {

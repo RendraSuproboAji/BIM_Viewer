@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { loadFiles } from "./bim/actions";
 import { useViewer } from "./bim/store";
 import { Categories } from "./components/Categories";
+import { ClashPanel } from "./components/ClashPanel";
 import { DataPanel } from "./components/DataPanel";
 import { ElementIssues, Issues, NewIssueDialog } from "./components/Issues";
 import { Library } from "./components/Library";
@@ -11,11 +12,12 @@ import { Properties } from "./components/Properties";
 import { Toolbar } from "./components/Toolbar";
 import { Viewport } from "./components/Viewport";
 
-type Tab = "tree" | "classes" | "data" | "library" | "issues";
+type Tab = "tree" | "classes" | "data" | "clash" | "library" | "issues";
 const TABS: [Tab, string][] = [
   ["tree", "Tree"],
   ["classes", "Classes"],
   ["data", "Data"],
+  ["clash", "Clash"],
   ["library", "Library"],
   ["issues", "Issues"],
 ];
@@ -53,6 +55,11 @@ export default function App() {
         {tab === "data" && (
           <div className="panel-body">
             <DataPanel />
+          </div>
+        )}
+        {tab === "clash" && (
+          <div className="panel-body">
+            <ClashPanel />
           </div>
         )}
         {tab === "library" && (

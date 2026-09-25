@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { HIDDEN_BY_DEFAULT } from "./ifc-classes";
 import type { Project, User } from "../../shared/api";
+import type { ClashRun } from "./clash-run";
 import type { ColorByState } from "./colorby";
 import type { Measurement, MeasureTool, Point } from "./measure";
 
@@ -14,7 +15,11 @@ export interface ModelInfo {
   libraryId?: string;
 }
 
-export type FitTarget = "all" | "selection" | { modelId: string; localIds: number[] };
+export type FitTarget =
+  | "all"
+  | "selection"
+  | { modelId: string; localIds: number[] }
+  | { box: [[number, number, number], [number, number, number]] };
 
 export interface Selection {
   modelId: string;
@@ -41,6 +46,8 @@ interface ViewerState {
   measurements: Measurement[];
   /** Points of the measurement being drawn. */
   draft: Point[];
+  /** Last clash detection run and its results. */
+  clashRun: ClashRun | null;
   /** Active colour-by-property (with its legend), if any. */
   colorBy: ColorByState | null;
   /** Issue shown in the Issues tab (opens that tab). */
@@ -93,6 +100,7 @@ export const useViewer = create<ViewerState>((set) => ({
   visibilityVersion: 0,
   libraryVersion: 0,
   colorBy: null,
+  clashRun: null,
   activeIssueId: null,
   newIssueOpen: false,
   tool: "select",
