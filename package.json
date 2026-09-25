@@ -11,9 +11,11 @@
     "dev:api": "tsx watch server/src/index.ts",
     "prebuild": "node scripts/copy-wasm.mjs",
     "build": "tsc -b && vite build",
+    "build:server": "esbuild server/src/index.ts --bundle --platform=node --format=esm --target=node22 --external:better-sqlite3 --outfile=dist-server/index.mjs --legal-comments=none --banner:js=\"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);\"",
     "start": "tsx server/src/index.ts",
     "test": "node --import tsx --test server/test/*.test.ts src/**/*.test.ts",
-    "lint": "oxlint",
+    "e2e": "node e2e/run.mjs",
+    "lint": "oxlint --deny-warnings",
     "typecheck": "tsc -b && tsc -p server",
     "preview": "vite preview"
   },
@@ -44,12 +46,14 @@
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.1",
     "concurrently": "^10.0.5",
+    "esbuild": "0.28.2",
     "oxlint": "^1.81.0",
+    "playwright": "1.56.1",
     "tsx": "^4.23.15",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   },
   "engines": {
-    "node": ">=20.19"
+    "node": ">=22"
   }
 }

@@ -70,15 +70,23 @@ Structural, Electrical, Plumbing in IFC2x3, IFC4 and IFC4.3), plus variants usin
 
 ## Getting started
 
-Requires Node 20.19+.
+Requires Node 22+.
 
 ```bash
 npm install
 npm run dev        # web app on http://localhost:5173 + API on :3001 (Vite proxies /api)
 npm test           # API + unit tests
+npm run e2e        # browser end-to-end suites (see e2e/README.md)
 npm run build      # production build in dist/
 npm start          # one Node process serving dist/ and the API on http://localhost:3001
 ```
+
+**Production:** `docker compose up -d --build` runs the app behind **nginx**, which serves the precompressed, long-cached static files. A small Node container serves only the API. See [deploy/README.md](deploy/README.md).
+
+**CI** (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`. It has three jobs:
+- typecheck, lint (warnings fail too), unit/API tests and build, on Node 22 and 24;
+- the browser end-to-end suites;
+- a Docker build of both images plus an nginx smoke test.
 
 `npm run dev:web` / `npm run dev:api` start each half on its own. The viewer also works without the API: choose
 "Use the viewer without the server" on the sign-in screen. Library, saved views and issues need the server.
@@ -168,6 +176,7 @@ src/
   bim/ifc-worker.ts    IFC → Fragments conversion in a Web Worker
   bim/ifc-classes.ts   full IFC class catalogue, disciplines, extra relations
   bim/actions.ts       load / select / isolate / hide / x-ray / export
+  bim/framing.ts       "Fit all" framing that ignores far-away markers
   bim/store.ts         zustand store
   bim/session.ts       sign-in state, projects
   bim/library.ts       model library, BIM data extraction, saved views
@@ -180,10 +189,15 @@ src/
   components/          Viewport (R3F canvas), Toolbar, ModelTree, Categories, Properties,
                        DataPanel, ClashPanel, ComparePanel, Library, Issues, Measurements,
                        Auth, ProjectMenu
+src/hooks/             useAsyncValue: keyed async loads without stale results
 scripts/copy-wasm.mjs  copies web-ifc WASM to public/web-ifc (runs automatically)
+e2e/                   browser end-to-end suites, fixtures and runner
+deploy/                nginx config, deployment notes, smoke test (Dockerfile + compose.yaml at the root)
 ```
 
 ## Notes
+
+- **The 3D view renders on demand** (R3F `frameloop="demand"`). It redraws only when the camera moves, geometry streams in, or something is selected, hidden or coloured. An idle viewer uses no GPU, which saves battery on laptops and tablets.
 
 - **`web-ifc` is pinned to `0.0.77`**, the version `@thatopen/components` / `@thatopen/fragments` 3.4.x
   are built against. `0.0.78` fails during IFC conversion with

@@ -16,6 +16,7 @@ import { capitalize, formatDate, prettyCategory, PRIORITY_LABELS, STATUS_LABELS 
 import { createIssue, highlightComponents, openIssue, selectionComponent, updateIssueViewpoint } from "../bim/issues";
 import { useCanEdit } from "../bim/session";
 import { useViewer } from "../bim/store";
+import { useAsyncValue } from "../hooks/useAsyncValue";
 import { Modal } from "./ProjectMenu";
 
 /** Issues tab: list with filters and BCF import/export, or one issue's detail. */
@@ -358,7 +359,12 @@ function EditableText(props: {
   className?: string;
 }) {
   const [value, setValue] = useState(props.value);
-  useEffect(() => setValue(props.value), [props.value]);
+  // Follow the saved value when it changes (e.g. after a save or a reload).
+  const [saved, setSaved] = useState(props.value);
+  if (props.value !== saved) {
+    setSaved(props.value);
+    setValue(props.value);
+  }
   const save = () => {
     if (value !== props.value && (value.trim() || props.multiline || props.label === "Labels")) props.onSave(value);
     else setValue(props.value);
@@ -494,15 +500,7 @@ export function ElementIssues() {
   const selection = useViewer((s) => s.selection);
   const projectId = useViewer((s) => s.projectId);
   const canEdit = useCanEdit();
-  const [guid, setGuid] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    setGuid(null);
-    if (selection) selectionComponent().then((c) => !cancelled && setGuid(c?.guid ?? null));
-    return () => {
-      cancelled = true;
-    };
-  }, [selection]);
+  const guid = useAsyncValue(selection, async (sel) => (sel ? ((await selectionComponent())?.guid ?? null) : null)).value ?? null;
   const issues = useApi(() => (projectId && guid ? api.listIssues({ projectId, guid }) : Promise.resolve([])), [projectId, guid]);
   const { setActiveIssueId, setNewIssueOpen } = useViewer.getState();
   if (!selection || !projectId) return null;

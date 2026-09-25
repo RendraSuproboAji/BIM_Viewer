@@ -6,6 +6,7 @@ import { select } from "../bim/actions";
 import { registerControls, registerRenderer } from "../bim/camera";
 import { REQUIRED_POINTS, type Point, type SnapKind } from "../bim/measure";
 import { engine } from "../bim/engine";
+import { framingBox } from "../bim/framing";
 import { useViewer } from "../bim/store";
 import { MeasurementOverlay } from "./Measurements";
 
@@ -15,6 +16,8 @@ export function Viewport() {
       className="viewport"
       camera={{ position: [30, 25, 30], fov: 45, near: 0.05, far: 100000 }}
       gl={{ antialias: true, logarithmicDepthBuffer: true }}
+      // Draw only when something changes (camera, streamed geometry, edits), not 60× a second.
+      frameloop="demand"
       onCreated={({ gl }) => gl.setClearColor("#1d2126")}
     >
       <ambientLight intensity={1.2} />
@@ -38,12 +41,17 @@ export function Viewport() {
 
 /** Bridges That Open fragments models into the R3F scene graph. */
 function Bim() {
-  const { scene, camera, gl } = useThree();
+  const { scene, camera, gl, invalidate } = useThree();
   const controls = useRef<CameraControls>(null);
   const framedOnce = useRef(false);
   const models = useViewer((s) => s.models);
   const fitRequest = useViewer((s) => s.fitRequest);
   const section = useViewer((s) => s.section);
+
+  useEffect(() => {
+    engine.setRenderRequester(() => invalidate());
+    return () => engine.setRenderRequester(null);
+  }, [invalidate]);
 
   // Add freshly loaded models to the scene and let them stream LODs for our camera.
   useEffect(() => {
@@ -106,7 +114,12 @@ function Bim() {
           }
         }
       } else {
-        for (const model of engine.models.values()) if (model.object.visible) box.union(model.box);
+        // Frame the visible elements, ignoring stray markers far from the building.
+        const boxes: THREE.Box3[] = [];
+        for (const model of engine.models.values()) {
+          if (model.object.visible) boxes.push(...(await model.getBoxes(await model.getItemsByVisibility(true))));
+        }
+        box.copy(framingBox(boxes));
       }
       const c = controls.current;
       if (box.isEmpty() || !c) return;

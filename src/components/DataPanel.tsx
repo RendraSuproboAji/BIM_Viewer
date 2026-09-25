@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { csvDocument } from "../../shared/csv";
 import { errorMessage, select } from "../bim/actions";
 import { applyColorBy, clearColorBy, toggleLegendEntry } from "../bim/colorby";
@@ -6,27 +6,19 @@ import { engine, HIGHLIGHT } from "../bim/engine";
 import { openModelElements } from "../bim/model-data";
 import { useViewer } from "../bim/store";
 import { listFields, takeoff, type FieldInfo, type FieldKey, type ModelElements, type TakeoffRow } from "../bim/takeoff";
+import { useAsyncValue } from "../hooks/useAsyncValue";
 import { ComparePanel } from "./ComparePanel";
 import { Modal } from "./ProjectMenu";
 
 /** Element data of the open models, re-read when models change. */
 function useModelData() {
   const models = useViewer((s) => s.models);
-  const [data, setData] = useState<{ models: ModelElements[]; fields: FieldInfo[] } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    setData(null);
-    if (!models.length) return;
-    openModelElements().then(
-      (m) => !cancelled && setData({ models: m, fields: listFields(m.flatMap((x) => x.elements)) }),
-      (e) => !cancelled && setError(errorMessage(e)),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [models]);
-  return { data, error, hasModels: models.length > 0 };
+  const { value: data, error } = useAsyncValue(models, async (list): Promise<{ models: ModelElements[]; fields: FieldInfo[] } | null> => {
+    if (!list.length) return null;
+    const m = await openModelElements();
+    return { models: m, fields: listFields(m.flatMap((x) => x.elements)) };
+  });
+  return { data, error: error ? errorMessage(error) : null, hasModels: models.length > 0 };
 }
 
 /** Left-panel tab: colour by property + quantity takeoff. */
@@ -152,29 +144,22 @@ function TakeoffDialog({ data, onClose }: { data: { models: ModelElements[]; fie
   );
   const [groupBy, setGroupBy] = useState<FieldKey>("Class");
   const [geomVolume, setGeomVolume] = useState(true);
-  const [volumes, setVolumes] = useState<Map<string, number> | null>(null);
   const [filter, setFilter] = useState("");
   const rows = useMemo(() => takeoff(data.models, groupBy, quantities), [data.models, groupBy, quantities]);
 
   // Geometric volume per group, computed from the actual meshes (works without Qto sets).
-  useEffect(() => {
-    let cancelled = false;
-    setVolumes(null);
-    if (!geomVolume) return;
-    void (async () => {
+  const volumes =
+    useAsyncValue(geomVolume ? rows : null, async (groups, stale) => {
+      if (!groups) return null;
       const out = new Map<string, number>();
-      for (const row of rows) {
+      for (const row of groups) {
         let v = 0;
         for (const [modelId, ids] of Object.entries(row.items)) v += (await engine.getModel(modelId)?.getItemsVolume(ids)) ?? 0;
-        if (cancelled) return;
+        if (stale()) return null;
         out.set(row.group, v);
       }
-      setVolumes(out);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [rows, geomVolume]);
+      return out;
+    }).value ?? null;
 
   const labelOf = (k: FieldKey) => data.fields.find((f) => f.key === k)?.label ?? k;
   const totals = useMemo(() => {

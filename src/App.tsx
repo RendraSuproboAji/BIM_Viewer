@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { loadFiles } from "./bim/actions";
 import { useViewer } from "./bim/store";
 import { Categories } from "./components/Categories";
@@ -26,9 +26,11 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("tree");
   const activeIssueId = useViewer((s) => s.activeIssueId);
   // Opening an issue (from anywhere) shows the Issues tab.
-  useEffect(() => {
+  const [shownIssueId, setShownIssueId] = useState<string | null>(null);
+  if (activeIssueId !== shownIssueId) {
+    setShownIssueId(activeIssueId);
     if (activeIssueId) setTab("issues");
-  }, [activeIssueId]);
+  }
   const [dragging, setDragging] = useState(false);
   const loading = useViewer((s) => s.loading);
   const error = useViewer((s) => s.error);
