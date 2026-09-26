@@ -2,7 +2,7 @@
 
 An experimental web BIM viewer for IFC models, built with
 [React Three Fiber](https://github.com/pmndrs/react-three-fiber) and
-[That Open Engine](https://github.com/ThatOpen/engine_components).
+[That Open Engine](https://github.com/ThatOpen/engine_fragments).
 
 ## Features
 
@@ -28,6 +28,7 @@ An experimental web BIM viewer for IFC models, built with
   - **Saved views**: camera, section plane, hidden classes, X-ray, and which library models are open
   - **Issues**: each issue has a title, status, priority, assignee, due date, linked elements, a **viewpoint** (camera + section + snapshot) and comments. Opening an issue restores its viewpoint.
   - **BCF 2.1 import/export** (`.bcfzip`), for round trips with Revit, Solibri, BIMcollab, etc. The importer also reads BCF 3.0. Re-importing the same file updates the issues rather than duplicating them.
+- **VR, AR and MR** (WebXR, via [pmndrs/xr](https://github.com/pmndrs/xr)): walk through the model at 1:1 in VR, place it on a table or the floor in MR (Quest 3 passthrough), or in the camera view of a phone in AR. The **XR** menu checks the device first and shows each mode as ready, limited or unavailable, with the reason. See [VR, AR and MR](#vr-ar-and-mr).
 
 ## Stack: which repo does what
 
@@ -35,13 +36,14 @@ An experimental web BIM viewer for IFC models, built with
 | --- | --- |
 | [pmndrs/react-three-fiber](https://github.com/pmndrs/react-three-fiber) | Owns the renderer, scene, camera, and render loop as React components |
 | [pmndrs/drei](https://github.com/pmndrs/drei) | `CameraControls`, `Grid`, `GizmoHelper` helpers for R3F |
-| [ThatOpen/engine_components](https://github.com/ThatOpen/engine_components) | `IfcLoader` (IFC → Fragments) and `FragmentsManager` |
-| [ThatOpen/engine_fragments](https://github.com/ThatOpen/engine_fragments) | Worker-based geometry streaming/LOD, raycasting, highlight, visibility, and BIM data queries |
+| [ThatOpen/engine_fragments](https://github.com/ThatOpen/engine_fragments) | `IfcImporter` (IFC → Fragments, in a worker), and `FragmentsModels`: worker-based geometry streaming/LOD, raycasting, highlight, visibility, and BIM data queries |
 | [ThatOpen/engine_web-ifc](https://github.com/ThatOpen/engine_web-ifc) | WASM IFC parser used by the IFC importer |
 | [yomotsu/camera-controls](https://github.com/yomotsu/camera-controls) | Camera controls engine behind drei's `CameraControls` |
 | [pmndrs/zustand](https://github.com/pmndrs/zustand) | App state (models, selection, section, loading) |
 | [fastify/fastify](https://github.com/fastify/fastify) | API server (`server/`) |
 | [WiseLibs/better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | SQLite database |
+| [pmndrs/xr](https://github.com/pmndrs/xr) | WebXR sessions, controllers/hands, locomotion, DOM overlay; IWER emulator in development |
+| [pmndrs/uikit](https://github.com/pmndrs/uikit) | The in-headset menu and property panel |
 
 The key design choice is that **R3F owns rendering and That Open owns BIM data**.
 We don't use That Open's `World`/`SimpleRenderer`. Each loaded `FragmentsModel.object`
@@ -55,7 +57,8 @@ That Open's IFC importer only converts a curated list of classes by default. Tha
 the IFC2x3 MEP classes `IfcElectricalElement`, `IfcEquipmentElement` and `IfcElectricDistributionPoint`, every property
 kind except `IfcPropertySingleValue`, MEP systems, and classification references.
 
-`src/bim/ifc-classes.ts` builds the full list from web-ifc's own schema inheritance tables, so nothing is hand-maintained:
+`src/bim/ifc-schema.ts` builds the full list from web-ifc's own schema inheritance tables, so nothing is hand-maintained
+(it runs in the conversion worker; the viewer gets the discipline tables pre-generated, see [Performance](#performance)):
 
 - **Geometry:** every `IfcProduct` subtype in all three schemas (207 classes). The only exclusions are alignments,
   which That Open processes separately, and structural-analysis items (loads, reactions, idealised members), which are analytical rather than physical.
@@ -180,6 +183,74 @@ Every route except `/api/health`, `/api/auth/status`, `/setup`, `/login` and `/l
 Click **Load sample** to open ThatOpen's `school_str.ifc` (downloaded from GitHub),
 or open/drop your own `.ifc` / `.frag` file.
 
+## VR, AR and MR
+
+Open a model, then click **XR ▾** in the toolbar. The menu checks the connected device before you choose:
+
+1. **HTTPS**: WebXR only works in a secure context (or on `localhost`).
+2. **WebXR** in the browser, then `immersive-vr` and `immersive-ar` support.
+3. **Headset or handheld**, from the browser (Meta Quest Browser, Pico, Vision Pro, Android). After a session starts, `session.interactionMode` confirms it.
+
+Each mode is shown as **✓ ready**, **⚠ limited** or **✗ unavailable**, with the reason. **Show compatibility details** lists what the browser reported, plus the table below. The XR code (about 800 kB, 400 kB gzipped, including the menu font) only loads when the menu is opened; the initial download is unchanged.
+
+| Mode | What it is | Scale | Controls |
+| --- | --- | --- | --- |
+| **VR** | Fully virtual walkthrough | 1:1, or a 1:50 / 1:100 / 1:200 overview | Trigger: select (or measure); grip on a floor: teleport; left stick: move; right stick: snap turn |
+| **MR** | Headset passthrough; the model sits in your room | Starts at 1:100 on a table; 1:1 on the floor | Aim at a surface and pull the trigger (or pinch) to place; then trigger/pinch selects. The placement is anchored where the headset supports anchors |
+| **AR** | Phone/tablet camera view | Starts at 1:100 | Tap a surface to place, tap an element to select; the HTML bar and Properties panel stay on screen (DOM overlay) |
+
+In VR and MR a floating menu follows you: scale, start/re-place, section (axis, position, flip), X-ray, discipline toggles, distance measuring, and the selected element's properties. Colour-by, clash and comparison colours, hidden classes and the section plane carry into every mode.
+
+The user's origin is scaled and moved, never the model, so picking, snapping, clipping and BIM coordinates are exactly as on the desktop.
+
+### Devices
+
+| Device / browser | VR | AR | MR | Notes |
+| --- | :-: | :-: | :-: | --- |
+| **Meta Quest 3 / 3S** (Meta Quest Browser) | ✓ | – | ✓ | Primary target: colour passthrough, hands, planes, mesh, anchors, depth |
+| Meta Quest Pro | ✓ | – | ✓ | Colour passthrough, no depth sensing |
+| Meta Quest 2 | ✓ | – | ✓ | Greyscale passthrough |
+| Pico 4 / 4 Ultra (Pico Browser) | ✓ | – | ✓ | Partial plane/anchor support |
+| Apple Vision Pro (Safari) | ✓ | – | – | Safari has no `immersive-ar` |
+| Android phone with ARCore (Chrome) | – | ✓ | – | Hit-test and DOM overlay |
+| iPhone / iPad (Safari) | – | – | – | No WebXR |
+| PC VR (SteamVR/OpenXR: Quest Link, Index, Vive) in Chrome/Edge | ✓ | – | – | |
+
+The menu decides from what the browser actually reports; this table is what to expect.
+
+### Trying it
+
+- **Headset or phone on the LAN:** `npm run dev:xr` serves the dev build over HTTPS (self-signed certificate; accept the warning once) on all interfaces. Open `https://<your-pc-ip>:5173` on the device.
+- **Quest over USB:** `adb reverse tcp:5173 tcp:5173`, then `npm run dev` and open `http://localhost:5173` in the Quest browser (`localhost` counts as secure).
+- **No headset:** in `npm run dev` the menu uses the [IWER](https://github.com/meta-quest/immersive-web-emulation-runtime) Quest 3 emulator, with its on-screen controls. Production builds never include the emulator.
+- **Production:** serve over HTTPS (see `deploy/`).
+
+Controller models and hand meshes are loaded from the jsDelivr CDN. On an air-gapped site, host a copy of `@webxr-input-profiles/assets` and build with `VITE_XR_ASSETS=https://your-host/path/`. Without it, selecting and teleporting still work; only the controller models are missing.
+
+## Performance
+
+The viewer is built to load fast and stay light:
+
+- **First load ≈ 640 kB of gzipped JavaScript**. Everything else loads when it is first used:
+  - the IFC converter (web-ifc and its WASM), only when an `.ifc` file is opened;
+  - the Data, Clash and Library tabs (clash detection's BVH library included);
+  - the XR modes.
+- **web-ifc stays off the main thread.** Its multi-MB schema tables are only needed by the conversion worker. The IFC
+  discipline tables the viewer needs are generated from them into a 5 kB module (`npm run gen:ifc-classes`).
+- **Libraries in their own chunks** (React, three.js, fragments), cached for a year: an app update only re-downloads
+  the app code.
+- **Only what's used ships:**
+  - the minified fragments worker (1.4 MB instead of 3.3 MB);
+  - the single-threaded web-ifc WASM (the multithreaded one needs cross-origin isolation, which the app doesn't use);
+  - production builds leave out the ~5 MB WebXR emulator.
+
+  `dist/` is 11 MB.
+- **Rendering on demand**, at half resolution while the camera moves and full resolution once it settles.
+- **Server:**
+  - SQLite in WAL mode with `synchronous = NORMAL`;
+  - nginx serves precompressed, immutable-cached assets;
+  - the Node server does the same when it serves the app itself.
+
 ## Project layout
 
 ```
@@ -193,9 +264,10 @@ server/
   test/                API, auth and migration tests (node:test)
 src/
   api/client.ts        typed API client
-  bim/engine.ts        That Open setup (FragmentsManager, worker IFC import), picking, snapping, clipping
+  bim/engine.ts        That Open setup (FragmentsModels, worker IFC import), picking, snapping, clipping
   bim/ifc-worker.ts    IFC → Fragments conversion in a Web Worker
-  bim/ifc-classes.ts   full IFC class catalogue, disciplines, extra relations
+  bim/ifc-schema.ts    full IFC class catalogue and extra relations from web-ifc (conversion worker)
+  bim/ifc-classes.ts   disciplines for the viewer, from the generated ifc-disciplines.generated.ts
   bim/actions.ts       load / select / isolate / hide / x-ray / export
   bim/framing.ts       "Fit all" framing that ignores far-away markers
   bim/store.ts         zustand store
@@ -207,6 +279,11 @@ src/
   bim/clash.ts, clash-run.ts    clash detection
   bim/compare.ts, compare-run.ts  model version comparison
   bim/*.test.ts        unit tests
+  bim/ray.ts           picking along a 3D ray (controllers), via the screen-space picker
+  xr/                  VR/AR/MR: capabilities (device check), XRMenu (mode picker), runtime (xr store),
+                       XRLayer (session scene), origin/placement (scaling and placing the user),
+                       SessionInput + actions (controller select/teleport/measure), XRPanel (in-headset UI),
+                       ARControls (phone DOM overlay)
   components/          Viewport (R3F canvas), Toolbar, ModelTree, Categories, Properties,
                        DataPanel, ClashPanel, ComparePanel, Library, Issues, Measurements,
                        Auth, ProjectMenu
@@ -220,8 +297,9 @@ deploy/                nginx config, deployment notes, smoke test (Dockerfile + 
 
 - **The 3D view renders on demand** (R3F `frameloop="demand"`). It redraws only when the camera moves, geometry streams in, or something is selected, hidden or coloured. An idle viewer uses no GPU, which saves battery on laptops and tablets.
 
-- **`web-ifc` is pinned to `0.0.77`**, the version `@thatopen/components` / `@thatopen/fragments` 3.4.x
+- **`web-ifc` is pinned to `0.0.77`**, the version `@thatopen/fragments` 3.4.x
   are built against. `0.0.78` fails during IFC conversion with
-  `StreamMeshes called with 4 arguments, expected 3`. Only upgrade it together with the ThatOpen packages.
+  `StreamMeshes called with 4 arguments, expected 3`. Only upgrade it together with the ThatOpen packages, then run
+  `npm run gen:ifc-classes` (a unit test fails while the generated discipline tables are stale).
 - The web-ifc WASM and the fragments worker are served locally, so the viewer doesn't depend on unpkg at runtime.
 - Converting large IFC files in the browser can take a while. Export the result to `.frag` for fast reloads.

@@ -15,7 +15,7 @@ import { useViewer, type SectionAxis } from "./store";
  */
 
 function baseMatrix() {
-  const base = engine.fragments.core.baseCoordinates;
+  const base = engine.core.baseCoordinates;
   const m = new THREE.Matrix4();
   if (!base || base.length < 9) return m;
   const [x, y, z, xx, xy, xz, yx, yy, yz] = base;

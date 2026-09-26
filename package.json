@@ -8,11 +8,13 @@
     "predev": "node scripts/copy-wasm.mjs",
     "dev": "concurrently -n web,api -c cyan,magenta \"vite\" \"tsx watch server/src/index.ts\"",
     "dev:web": "vite",
+    "dev:xr": "concurrently -n web,api -c cyan,magenta \"vite --mode xr\" \"tsx watch server/src/index.ts\"",
     "dev:api": "tsx watch server/src/index.ts",
     "prebuild": "node scripts/copy-wasm.mjs",
     "build": "tsc -b && vite build",
     "build:server": "esbuild server/src/index.ts --bundle --platform=node --format=esm --target=node22 --external:better-sqlite3 --outfile=dist-server/index.mjs --legal-comments=none --banner:js=\"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);\"",
     "start": "tsx server/src/index.ts",
+    "gen:ifc-classes": "tsx scripts/gen-ifc-classes.ts",
     "test": "node --import tsx --test server/test/*.test.ts src/**/*.test.ts",
     "e2e": "node e2e/run.mjs",
     "lint": "oxlint --deny-warnings",
@@ -24,7 +26,8 @@
     "@fastify/static": "^10.1.4",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.8.1",
-    "@thatopen/components": "^3.4.8",
+    "@react-three/uikit": "^1.0.76",
+    "@react-three/xr": "^6.6.30",
     "@thatopen/fragments": "^3.4.7",
     "better-sqlite3": "^13.0.3",
     "camera-controls": "^3.1.2",
@@ -44,9 +47,11 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@types/three": "^0.186.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "concurrently": "^10.0.5",
     "esbuild": "0.28.2",
+    "iwer": "2.5.0",
     "oxlint": "^1.81.0",
     "playwright": "1.56.1",
     "tsx": "^4.23.15",
@@ -55,5 +60,13 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "@iwer/devui": {
+      "three": "$three"
+    },
+    "@iwer/sem": {
+      "three": "$three"
+    }
   }
 }

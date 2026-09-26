@@ -1,6 +1,6 @@
 import { CameraControls, GizmoHelper, GizmoViewport, Grid } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { select } from "../bim/actions";
 import { registerControls, registerRenderer } from "../bim/camera";
@@ -8,34 +8,84 @@ import { REQUIRED_POINTS, type Point, type SnapKind } from "../bim/measure";
 import { engine } from "../bim/engine";
 import { framingBox } from "../bim/framing";
 import { useViewer } from "../bim/store";
+import { useXRUi } from "../xr/state";
 import { MeasurementOverlay } from "./Measurements";
 
+/** VR/AR/MR support, loaded only once the user opens the XR menu (see src/xr/). */
+const XRLayer = lazy(() => import("../xr/XRLayer"));
+
 export function Viewport() {
+  const xrRequested = useXRUi((s) => s.runtimeLoaded);
   return (
     <Canvas
       className="viewport"
       camera={{ position: [30, 25, 30], fov: 45, near: 0.05, far: 100000 }}
       gl={{ antialias: true, logarithmicDepthBuffer: true }}
       // Draw only when something changes (camera, streamed geometry, edits), not 60× a second.
+      // (XR sessions render every headset frame regardless.)
       frameloop="demand"
+      // While the camera moves, draw at half resolution (see AdaptiveResolution).
+      performance={{ min: 0.5, debounce: 250 }}
       onCreated={({ gl }) => gl.setClearColor("#1d2126")}
     >
+      {xrRequested ? (
+        <Suspense fallback={<Scene />}>
+          <XRLayer>
+            <Scene />
+          </XRLayer>
+        </Suspense>
+      ) : (
+        <Scene />
+      )}
+    </Canvas>
+  );
+}
+
+/**
+ * Lowers the pixel ratio while the camera moves (CameraControls `regress`) and restores it
+ * once it settles: orbiting a large model on a high-DPI screen stays smooth. Unlike drei's
+ * AdaptiveDpr it also redraws after the change, which on-demand rendering needs.
+ */
+function AdaptiveResolution() {
+  const current = useThree((s) => s.performance.current);
+  const initialDpr = useThree((s) => s.viewport.initialDpr);
+  const setDpr = useThree((s) => s.setDpr);
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    setDpr(current * initialDpr);
+    invalidate();
+  }, [current, initialDpr, setDpr, invalidate]);
+  return null;
+}
+
+function Scene() {
+  const xrMode = useXRUi((s) => s.mode);
+  return (
+    <>
+      {/* The headset sets its own resolution. */}
+      {!xrMode && <AdaptiveResolution />}
       <ambientLight intensity={1.2} />
       <directionalLight position={[50, 80, 30]} intensity={2} />
-      <Grid
-        args={[500, 500]}
-        cellSize={1}
-        sectionSize={10}
-        cellColor="#3a4048"
-        sectionColor="#56606b"
-        fadeDistance={1500}
-        infiniteGrid
-      />
+      {/* In AR and MR the real world is the floor. */}
+      {xrMode !== "ar" && xrMode !== "mr" && (
+        <Grid
+          args={[500, 500]}
+          cellSize={1}
+          sectionSize={10}
+          cellColor="#3a4048"
+          sectionColor="#56606b"
+          fadeDistance={1500}
+          infiniteGrid
+          pointerEvents="none"
+        />
+      )}
       <Bim />
-      <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
-        <GizmoViewport labelColor="white" axisHeadScale={0.9} />
-      </GizmoHelper>
-    </Canvas>
+      {!xrMode && (
+        <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
+          <GizmoViewport labelColor="white" axisHeadScale={0.9} />
+        </GizmoHelper>
+      )}
+    </>
   );
 }
 
@@ -59,6 +109,9 @@ function Bim() {
       const model = engine.getModel(id);
       if (!model || model.object.parent === scene) continue;
       model.useCamera(camera as THREE.PerspectiveCamera);
+      // BIM picking goes through the fragments raycast (engine.pick/pickRay); keep XR
+      // pointers from raycasting the model meshes every frame.
+      (model.object as THREE.Object3D & { pointerEvents?: string }).pointerEvents = "none";
       scene.add(model.object);
     }
     // Remove objects of disposed models.
@@ -159,28 +212,34 @@ function Bim() {
   const tool = useViewer((s) => s.tool);
   const [hover, setHover] = useState<{ point: Point; kind: SnapKind } | null>(null);
   useEffect(() => {
-    if (tool === "select") {
-      setHover(null);
-      return;
-    }
+    if (tool === "select") return;
     const dom = gl.domElement;
     let pending: PointerEvent | null = null;
     let busy = false;
+    // A snap still resolving when the pointer leaves or the tool changes must not bring the marker back.
+    let inside = true;
+    let active = true;
     const flush = async () => {
       if (busy || !pending) return;
       busy = true;
       const e = pending;
       pending = null;
-      setHover(await engine.snap(camera as THREE.PerspectiveCamera, dom, e.clientX, e.clientY));
+      const snap = await engine.snap(camera as THREE.PerspectiveCamera, dom, e.clientX, e.clientY);
+      if (active && inside) setHover(snap);
       busy = false;
       if (pending) void flush();
     };
     // Snap raycasts are async; only the latest pointer position is processed.
     const onMove = (e: PointerEvent) => {
+      inside = true;
       pending = e;
       void flush();
     };
-    const onLeave = () => setHover(null);
+    const onLeave = () => {
+      inside = false;
+      pending = null;
+      setHover(null);
+    };
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest("input, textarea, select")) return;
       if (!["Escape", "Backspace", "Enter"].includes(e.key)) return;
@@ -203,6 +262,8 @@ function Bim() {
     window.addEventListener("keydown", onKey);
     dom.style.cursor = "crosshair";
     return () => {
+      active = false;
+      setHover(null);
       dom.removeEventListener("pointermove", onMove);
       dom.removeEventListener("pointerleave", onLeave);
       window.removeEventListener("keydown", onKey);
@@ -267,9 +328,11 @@ function Bim() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gl, camera]);
 
+  const inXR = useXRUi((s) => s.mode) !== null;
   return (
     <>
-      <CameraControls ref={controls} makeDefault />
+      {/* The headset owns the camera during an XR session. */}
+      <CameraControls ref={controls} makeDefault enabled={!inXR} regress />
       <MeasurementOverlay hover={hover} />
     </>
   );

@@ -9,7 +9,7 @@ npm run e2e -- clash issues # only some
 
 The runner starts the Vite dev server on `:5174`, or reuses one that is already running. Set `E2E_URL` to test a server you start yourself. The dev server is used because it exposes the `window.__bim*` test hooks, which production builds leave out.
 
-- **Viewer suites** (`interact`, `measure`, `stress`, `classes`, `data`, `clash`, `compare`) run in "viewer without the server" mode, so nothing may be listening on `:3001`.
+- **Viewer suites** (`interact`, `measure`, `stress`, `classes`, `data`, `clash`, `compare`, `xr`) run in "viewer without the server" mode, so nothing may be listening on `:3001`.
 - **API suites** (`db`, `issues`) start their own API server on `:3001` with a fresh data directory.
 
 Screenshots, test data and `summary.json` go to `e2e/.output/`, which CI uploads as an artifact. Fixtures are in `e2e/fixtures/`; see `ATTRIBUTION.md` there. The one large model, ThatOpen's `school_str.ifc`, is downloaded on first use into `e2e/.cache/`.
@@ -23,5 +23,6 @@ Screenshots, test data and `summary.json` go to `e2e/.output/`, which CI uploads
 | `data` | Colour by property, quantity takeoff, geometric volume |
 | `clash` | Hard and clearance clashes, focus, clear |
 | `compare` | Version comparison: added, changed and removed elements; the diff table; CSV |
+| `xr` | In an emulated Quest 3 (IWER, via `?xr-automation`): the device check, VR start pose, controller select, measuring, teleport, 1:50 overview, section; MR preview, placing, selecting at 1:100, rescaling; back to the desktop. Handheld AR has no emulator, so it is covered by unit tests only |
 | `db` | Model library, search, saved views, CSV, persistence across an API restart |
 | `issues` | Login, projects and roles, issues with viewpoints, comments, BCF export/import, clash → issue |

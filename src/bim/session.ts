@@ -52,6 +52,8 @@ export async function switchProject(projectId: string | null) {
   await select(null);
   for (const m of [...state.models]) await removeModel(m.id);
   state.clearMeasurements();
+  // Clash reports and comparisons belong to the project they were made in.
+  useViewer.setState({ clashRun: null, compareRun: null, colorBy: null });
   state.setProjectId(projectId);
   if (state.user) remember(lastProjectKey(state.user), projectId);
 }
@@ -73,6 +75,9 @@ export async function signOut() {
     draft: [],
     activeIssueId: null,
     newIssueOpen: false,
+    clashRun: null,
+    compareRun: null,
+    colorBy: null,
     error: null,
   });
 }

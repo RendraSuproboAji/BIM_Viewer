@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { APP_URL, REPO, schoolModel } from "./lib.mjs";
 
-const VIEWER_SUITES = ["interact", "measure", "stress", "classes", "data", "clash", "compare"];
+const VIEWER_SUITES = ["interact", "measure", "stress", "classes", "data", "clash", "compare", "xr"];
 const API_SUITES = ["db", "issues"];
 const TIMEOUT_MS = 20 * 60_000;
 

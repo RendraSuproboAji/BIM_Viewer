@@ -33,16 +33,19 @@ On first start, open the site and create the administrator account.
   - nginx keeps connections to the API open (`keepalive`).
 - **Health checks.** `web` waits for `api` to be healthy before it starts.
 
-Measured through nginx, the first visit downloads about 2.8 MB instead of 15.7 MB:
+Measured through nginx (gzip), opening the viewer downloads about 0.9 MB. The IFC converter adds
+1.1 MB the first time an `.ifc` file is opened; `.frag` files and library models don't need it.
 
-| File | Raw | Transferred |
-| --- | --- | --- |
-| Main JS | 6.6 MB | 1.2 MB |
-| IFC worker | 4.5 MB | 0.63 MB |
-| Fragments worker | 3.3 MB | 0.44 MB |
-| web-ifc WASM | 1.3 MB | 0.47 MB |
+| File | Raw | Transferred | When |
+| --- | --- | --- | --- |
+| App JS (React, three.js, fragments and app chunks) | 2.7 MB | 0.63 MB | Always |
+| Fragments worker (minified) | 1.4 MB | 0.28 MB | Always |
+| IFC worker | 4.5 MB | 0.63 MB | First `.ifc` opened |
+| web-ifc WASM | 1.3 MB | 0.47 MB | First `.ifc` opened |
 
-Later visits download only `index.html`; the WASM is re-checked once a day.
+Before these optimisations, the same first visit downloaded 2.8 MB, 1.6 MB of it before anything was opened.
+
+Later visits download only `index.html`. After an app update, only the app chunk changes: the React, three.js and fragments chunks stay cached. The WASM is re-checked once a day.
 
 nginx listens on IPv4 only, which is what Docker's default bridge network uses. If your host has IPv6, add `listen [::]:80;` to `deploy/nginx.conf`.
 

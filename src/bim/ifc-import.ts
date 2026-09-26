@@ -1,5 +1,5 @@
 import type * as FRAGS from "@thatopen/fragments";
-import { ALL_PRODUCT_CLASSES, EXTRA_DATA_CLASSES, EXTRA_RELATIONS } from "./ifc-classes";
+import { ALL_PRODUCT_CLASSES, EXTRA_DATA_CLASSES, EXTRA_RELATIONS } from "./ifc-schema";
 
 /**
  * That Open only converts a curated subset of IFC classes by default, which
