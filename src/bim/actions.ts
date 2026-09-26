@@ -39,13 +39,15 @@ export interface LoadOptions {
 }
 
 export async function loadBuffer(buffer: ArrayBuffer, name: string, options: LoadOptions = {}) {
-  const { setLoading, setError, addModel, requestFit, ghost, hiddenClasses } = useViewer.getState();
+  const { setLoading, setError, addModel, requestFit } = useViewer.getState();
   const isFrag = (options.format ?? (/\.frag$/i.test(name) ? "frag" : "ifc")) === "frag";
   setLoading({ label: `${isFrag ? "Loading" : "Converting"} ${name}`, progress: 0 });
   try {
     const model = isFrag
       ? await engine.loadFrag(buffer, name)
       : await engine.loadIfc(buffer, name, (p) => setLoading({ label: `Converting ${name}`, progress: p }));
+    // Read after the (possibly long) conversion, so settings changed meanwhile apply too.
+    const { ghost, hiddenClasses } = useViewer.getState();
     if (ghost) await model.setOpacity(undefined, GHOST_OPACITY);
     // Apply the current class filter (spaces, openings... are hidden by default).
     const hidden = await idsOfClasses(model, hiddenClasses);
@@ -154,7 +156,10 @@ export async function setGhost(ghost: boolean) {
 }
 
 export async function removeModel(modelId: string) {
-  if (useViewer.getState().selection?.modelId === modelId) await select(null);
+  const { selection, compareRun } = useViewer.getState();
+  if (selection?.modelId === modelId) await select(null);
+  // The other compared version would otherwise stay ghosted and coloured, with no way to clear it.
+  if (compareRun && (compareRun.beforeId === modelId || compareRun.afterId === modelId)) await (await import("./compare-run")).clearCompare();
   await engine.disposeModel(modelId);
   useViewer.getState().removeModel(modelId);
   await engine.update(true);

@@ -24,6 +24,8 @@ export function Viewport() {
       // Draw only when something changes (camera, streamed geometry, edits), not 60× a second.
       // (XR sessions render every headset frame regardless.)
       frameloop="demand"
+      // While the camera moves, draw at half resolution (see AdaptiveResolution).
+      performance={{ min: 0.5, debounce: 250 }}
       onCreated={({ gl }) => gl.setClearColor("#1d2126")}
     >
       {xrRequested ? (
@@ -39,10 +41,29 @@ export function Viewport() {
   );
 }
 
+/**
+ * Lowers the pixel ratio while the camera moves (CameraControls `regress`) and restores it
+ * once it settles: orbiting a large model on a high-DPI screen stays smooth. Unlike drei's
+ * AdaptiveDpr it also redraws after the change, which on-demand rendering needs.
+ */
+function AdaptiveResolution() {
+  const current = useThree((s) => s.performance.current);
+  const initialDpr = useThree((s) => s.viewport.initialDpr);
+  const setDpr = useThree((s) => s.setDpr);
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    setDpr(current * initialDpr);
+    invalidate();
+  }, [current, initialDpr, setDpr, invalidate]);
+  return null;
+}
+
 function Scene() {
   const xrMode = useXRUi((s) => s.mode);
   return (
     <>
+      {/* The headset sets its own resolution. */}
+      {!xrMode && <AdaptiveResolution />}
       <ambientLight intensity={1.2} />
       <directionalLight position={[50, 80, 30]} intensity={2} />
       {/* In AR and MR the real world is the floor. */}
@@ -191,28 +212,34 @@ function Bim() {
   const tool = useViewer((s) => s.tool);
   const [hover, setHover] = useState<{ point: Point; kind: SnapKind } | null>(null);
   useEffect(() => {
-    if (tool === "select") {
-      setHover(null);
-      return;
-    }
+    if (tool === "select") return;
     const dom = gl.domElement;
     let pending: PointerEvent | null = null;
     let busy = false;
+    // A snap still resolving when the pointer leaves or the tool changes must not bring the marker back.
+    let inside = true;
+    let active = true;
     const flush = async () => {
       if (busy || !pending) return;
       busy = true;
       const e = pending;
       pending = null;
-      setHover(await engine.snap(camera as THREE.PerspectiveCamera, dom, e.clientX, e.clientY));
+      const snap = await engine.snap(camera as THREE.PerspectiveCamera, dom, e.clientX, e.clientY);
+      if (active && inside) setHover(snap);
       busy = false;
       if (pending) void flush();
     };
     // Snap raycasts are async; only the latest pointer position is processed.
     const onMove = (e: PointerEvent) => {
+      inside = true;
       pending = e;
       void flush();
     };
-    const onLeave = () => setHover(null);
+    const onLeave = () => {
+      inside = false;
+      pending = null;
+      setHover(null);
+    };
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest("input, textarea, select")) return;
       if (!["Escape", "Backspace", "Enter"].includes(e.key)) return;
@@ -235,6 +262,8 @@ function Bim() {
     window.addEventListener("keydown", onKey);
     dom.style.cursor = "crosshair";
     return () => {
+      active = false;
+      setHover(null);
       dom.removeEventListener("pointermove", onMove);
       dom.removeEventListener("pointerleave", onLeave);
       window.removeEventListener("keydown", onKey);
@@ -303,7 +332,7 @@ function Bim() {
   return (
     <>
       {/* The headset owns the camera during an XR session. */}
-      <CameraControls ref={controls} makeDefault enabled={!inXR} />
+      <CameraControls ref={controls} makeDefault enabled={!inXR} regress />
       <MeasurementOverlay hover={hover} />
     </>
   );

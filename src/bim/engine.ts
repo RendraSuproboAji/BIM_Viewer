@@ -1,4 +1,3 @@
-import * as OBC from "@thatopen/components";
 import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
 import type { IfcWorkerRequest, IfcWorkerResponse } from "./ifc-import";
@@ -14,8 +13,8 @@ import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
  * streaming geometry from a worker, and querying BIM data.
  */
 class BimEngine {
-  readonly components = new OBC.Components();
-  readonly fragments: OBC.FragmentsManager;
+  /** Fragments core: model list, worker, materials, base coordinates. */
+  readonly core: FRAGS.FragmentsModels;
   /** Section planes, applied per fragments material so the grid and gizmo stay unclipped. */
   private clippingPlanes: THREE.Plane[] = [];
   /**
@@ -25,11 +24,10 @@ class BimEngine {
   private renderRequester: (() => void) | null = null;
 
   constructor() {
-    this.fragments = this.components.get(OBC.FragmentsManager);
-    this.fragments.init(fragmentsWorkerUrl);
+    this.core = new FRAGS.FragmentsModels(fragmentsWorkerUrl);
 
     // Avoid z-fighting between coplanar faces of different elements.
-    this.fragments.core.models.materials.list.onItemSet.add(({ value: material }) => {
+    this.core.models.materials.list.onItemSet.add(({ value: material }) => {
       // Materials created later (new models, highlights) inherit the current section.
       material.clippingPlanes = this.clippingPlanes.length ? this.clippingPlanes : null;
       if ("isLodMaterial" in material && material.isLodMaterial) return;
@@ -39,7 +37,7 @@ class BimEngine {
     });
 
     // Geometry streams in from the worker after camera moves and edits: draw each change.
-    this.fragments.list.onItemSet.add(({ value: model }) => {
+    this.core.models.list.onItemSet.add(({ value: model }) => {
       const redraw = () => this.requestRender();
       model.onViewUpdated.add(redraw);
       model.tiles.onItemSet.add(redraw);
@@ -58,16 +56,16 @@ class BimEngine {
   }
 
   get models() {
-    return this.fragments.list;
+    return this.core.models.list;
   }
 
   async loadIfc(buffer: ArrayBuffer, name: string, onProgress?: (p: number) => void) {
     const frag = await convertIfc(buffer, onProgress);
-    return withModelId(name, (id) => this.fragments.core.load(frag, { modelId: id }));
+    return withModelId(name, (id) => this.core.load(frag, { modelId: id }));
   }
 
   async loadFrag(buffer: ArrayBuffer, name: string) {
-    return withModelId(name, (id) => this.fragments.core.load(buffer, { modelId: id }));
+    return withModelId(name, (id) => this.core.load(buffer, { modelId: id }));
   }
 
   getClippingPlanes() {
@@ -78,17 +76,17 @@ class BimEngine {
   setClippingPlanes(planes: THREE.Plane[]) {
     const toggled = planes.length !== this.clippingPlanes.length;
     this.clippingPlanes = planes;
-    for (const material of this.fragments.core.models.materials.list.values()) {
+    for (const material of this.core.models.materials.list.values()) {
       material.clippingPlanes = planes.length ? planes : null;
       // Changing the number of planes changes the shader program.
       if (toggled) material.needsUpdate = true;
     }
-    for (const model of this.fragments.list.values()) model.getClippingPlanesEvent = () => this.clippingPlanes;
+    for (const model of this.core.models.list.values()) model.getClippingPlanesEvent = () => this.clippingPlanes;
     this.requestRender();
   }
 
   getModel(modelId: string) {
-    return this.fragments.list.get(modelId);
+    return this.core.models.list.get(modelId);
   }
 
   /**
@@ -99,15 +97,49 @@ class BimEngine {
    */
   update(force = false) {
     this.requestRender();
-    const request = this.fragments.core.update(force).then(
+    const request = (force ? this.forcedUpdate() : this.core.update(false)).then(
       () => this.requestRender(),
       () => {},
     );
     return Promise.race([request, new Promise<void>((resolve) => setTimeout(resolve, 1000))]);
   }
 
+  private forcedRun: Promise<void> | null = null;
+  private forcedNext: Promise<void> | null = null;
+
+  /**
+   * fragments rate-limits `update()` to one per `maxUpdateRate` ms and silently drops
+   * calls inside that window, forced ones included. The forced update when the camera
+   * comes to rest (always within the window of the last move) or after an edit would
+   * then never run. Wait the window out, retrying if a camera update slipped in first.
+   * While a run is in flight, callers share one follow-up run (the in-flight one may
+   * have started before their change).
+   */
+  private forcedUpdate(): Promise<void> {
+    if (!this.forcedRun) {
+      this.forcedRun = this.runForced().finally(() => (this.forcedRun = null));
+      return this.forcedRun;
+    }
+    this.forcedNext ??= this.forcedRun.catch(() => {}).then(() => {
+      this.forcedNext = null;
+      return this.forcedUpdate();
+    });
+    return this.forcedNext;
+  }
+
+  private async runForced() {
+    const core = this.core as unknown as { _lastUpdate?: number };
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const wait = (core._lastUpdate ?? 0) + this.core.settings.maxUpdateRate - performance.now();
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait + 1));
+      const before = core._lastUpdate;
+      await this.core.update(true);
+      if (core._lastUpdate !== before) return; // it ran
+    }
+  }
+
   async disposeModel(modelId: string) {
-    await this.fragments.core.disposeModel(modelId);
+    await this.core.disposeModel(modelId);
     releaseId(modelId);
     this.requestRender();
   }
@@ -145,7 +177,7 @@ class BimEngine {
   private async snapAt(camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, dom: HTMLCanvasElement, clientX: number, clientY: number) {
     const mouse = new THREE.Vector2(clientX, clientY);
     const hits: FRAGS.RaycastResult[] = [];
-    for (const model of this.fragments.list.values()) {
+    for (const model of this.core.models.list.values()) {
       if (!model.object.visible) continue;
       const results = await model.raycastWithSnapping({
         camera,
@@ -184,7 +216,7 @@ class BimEngine {
   async pick(camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, dom: HTMLCanvasElement, clientX: number, clientY: number) {
     const mouse = new THREE.Vector2(clientX, clientY);
     let best: { modelId: string; hit: FRAGS.RaycastResult } | null = null;
-    for (const [modelId, model] of this.fragments.list) {
+    for (const [modelId, model] of this.core.models.list) {
       // Hidden models stay in the worker, so they would still be hit.
       if (!model.object.visible) continue;
       const hit = await model.raycast({ camera, mouse, dom });

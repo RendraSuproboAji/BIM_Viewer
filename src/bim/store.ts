@@ -89,6 +89,19 @@ interface ViewerState {
 
 let nextMeasurementId = 1;
 
+/** The colour-by legend without a closed model's elements (null once nothing is left). */
+export function colorByWithout(state: ColorByState, modelId: string): ColorByState | null {
+  const legend = state.legend
+    .map((entry) => {
+      const { [modelId]: removed, ...items } = entry.items;
+      return removed ? { ...entry, items, count: entry.count - removed.length } : entry;
+    })
+    .filter((entry) => entry.count > 0);
+  if (!legend.length) return null;
+  const labels = new Set(legend.map((e) => e.label));
+  return { ...state, legend, hidden: state.hidden.filter((l) => labels.has(l)) };
+}
+
 export const useViewer = create<ViewerState>((set) => ({
   user: null,
   projects: [],
@@ -120,6 +133,10 @@ export const useViewer = create<ViewerState>((set) => ({
     set((s) => ({
       models: s.models.filter((m) => m.id !== id),
       selection: s.selection?.modelId === id ? null : s.selection,
+      // Results about a closed model can't be focused or reported any more.
+      clashRun: s.clashRun?.results.some((r) => r.a.modelId === id || r.b.modelId === id) ? null : s.clashRun,
+      compareRun: s.compareRun && (s.compareRun.beforeId === id || s.compareRun.afterId === id) ? null : s.compareRun,
+      colorBy: s.colorBy && colorByWithout(s.colorBy, id),
     })),
   setModelVisible: (id, visible) =>
     set((s) => ({ models: s.models.map((m) => (m.id === id ? { ...m, visible } : m)) })),
@@ -144,4 +161,4 @@ export const useViewer = create<ViewerState>((set) => ({
 }));
 
 // Handy for debugging from the browser console during development.
-if (import.meta.env.DEV) (window as unknown as { __bimStore: typeof useViewer }).__bimStore = useViewer;
+if (import.meta.env?.DEV) (window as unknown as { __bimStore: typeof useViewer }).__bimStore = useViewer;

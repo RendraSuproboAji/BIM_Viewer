@@ -76,7 +76,7 @@ try {
   const camAtIssue = await camera(page);
   const issueBcfExpected = await page.evaluate(() => {
     const c = window.__bimControls.camera;
-    const base = window.__bim.fragments.core.baseCoordinates;
+    const base = window.__bim.core.baseCoordinates;
     return { pos: c.position.toArray(), base };
   });
   await page.click(".toolbar button:has-text('+ Issue')");

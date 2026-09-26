@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
+import { gzipSync } from "node:zlib";
 import { strFromU8, unzipSync, zipSync, strToU8 } from "fflate";
 import type { ElementRecord, IssueDetail, Issue, ModelRecord, User, ViewRecord, ViewState } from "../../shared/api.ts";
 import { toCsv } from "../src/app.ts";
@@ -303,9 +304,18 @@ describe("static web app", () => {
   test("serves index for app routes, 404 for missing files and API routes", async () => {
     const staticDir = mkdtempSync(join(tmpdir(), "bim-static-"));
     writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>BIM</title>");
+    mkdirSync(join(staticDir, "assets"));
+    writeFileSync(join(staticDir, "assets", "app-abc123.js"), "console.log(1)");
+    writeFileSync(join(staticDir, "assets", "app-abc123.js.gz"), gzipSync("console.log(1)"));
     const web = await testServer({ staticDir });
     try {
-      assert.equal((await web.app.inject("/")).statusCode, 200);
+      const shell = await web.app.inject("/");
+      assert.equal(shell.statusCode, 200);
+      assert.equal(shell.headers["cache-control"], "no-cache", "a new deploy is picked up at once");
+      const asset = await web.app.inject({ url: "/assets/app-abc123.js", headers: { "accept-encoding": "gzip" } });
+      assert.equal(asset.statusCode, 200);
+      assert.equal(asset.headers["cache-control"], "public, max-age=31536000, immutable");
+      assert.equal(asset.headers["content-encoding"], "gzip", "the precompressed file is served");
       const route = await web.app.inject("/projects/42");
       assert.equal(route.statusCode, 200);
       assert.match(route.body, /<title>BIM<\/title>/);

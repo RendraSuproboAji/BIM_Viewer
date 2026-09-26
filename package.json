@@ -14,6 +14,7 @@
     "build": "tsc -b && vite build",
     "build:server": "esbuild server/src/index.ts --bundle --platform=node --format=esm --target=node22 --external:better-sqlite3 --outfile=dist-server/index.mjs --legal-comments=none --banner:js=\"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);\"",
     "start": "tsx server/src/index.ts",
+    "gen:ifc-classes": "tsx scripts/gen-ifc-classes.ts",
     "test": "node --import tsx --test server/test/*.test.ts src/**/*.test.ts",
     "e2e": "node e2e/run.mjs",
     "lint": "oxlint --deny-warnings",

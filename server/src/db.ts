@@ -212,6 +212,11 @@ export type Db = Database.Database;
 export function openDatabase(file: string): Db {
   const db = new Database(file);
   db.pragma("journal_mode = WAL");
+  // With WAL, NORMAL stays crash-safe (only the last commits can roll back on power loss)
+  // and avoids an fsync per transaction, which makes saving element data much faster.
+  db.pragma("synchronous = NORMAL");
+  db.pragma("busy_timeout = 5000");
+  db.pragma("temp_store = MEMORY");
   db.pragma("foreign_keys = ON");
   migrate(db);
   return db;

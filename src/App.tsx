@@ -1,16 +1,19 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { loadFiles } from "./bim/actions";
 import { useViewer } from "./bim/store";
 import { Categories } from "./components/Categories";
-import { ClashPanel } from "./components/ClashPanel";
-import { DataPanel } from "./components/DataPanel";
 import { ElementIssues, Issues, NewIssueDialog } from "./components/Issues";
-import { Library } from "./components/Library";
 import { MeasurementHint, MeasurementList } from "./components/Measurements";
 import { ModelTree } from "./components/ModelTree";
 import { Properties } from "./components/Properties";
 import { Toolbar } from "./components/Toolbar";
 import { Viewport } from "./components/Viewport";
+
+// Tabs opened on demand load their code (and clash detection's BVH library) on first use.
+const DataPanel = lazy(() => import("./components/DataPanel").then((m) => ({ default: m.DataPanel })));
+const ClashPanel = lazy(() => import("./components/ClashPanel").then((m) => ({ default: m.ClashPanel })));
+const Library = lazy(() => import("./components/Library").then((m) => ({ default: m.Library })));
+const panelFallback = <p className="muted small">Loading…</p>;
 
 type Tab = "tree" | "classes" | "data" | "clash" | "library" | "issues";
 const TABS: [Tab, string][] = [
@@ -56,17 +59,23 @@ export default function App() {
         </div>
         {tab === "data" && (
           <div className="panel-body">
-            <DataPanel />
+            <Suspense fallback={panelFallback}>
+              <DataPanel />
+            </Suspense>
           </div>
         )}
         {tab === "clash" && (
           <div className="panel-body">
-            <ClashPanel />
+            <Suspense fallback={panelFallback}>
+              <ClashPanel />
+            </Suspense>
           </div>
         )}
         {tab === "library" && (
           <div className="panel-body">
-            <Library />
+            <Suspense fallback={panelFallback}>
+              <Library />
+            </Suspense>
           </div>
         )}
         {tab === "issues" && (

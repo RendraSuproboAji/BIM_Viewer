@@ -10,9 +10,26 @@ interface ClassCount {
   count: number;
 }
 
+/** Element count per class of a model. A model's classes never change, so each is read once. */
+const classCounts = new WeakMap<object, Promise<Map<string, number>>>();
+function countClasses(model: NonNullable<ReturnType<typeof engine.getModel>>) {
+  let counts = classCounts.get(model);
+  if (!counts) {
+    counts = model.getItemsWithGeometryCategories().then((categories) => {
+      const out = new Map<string, number>();
+      // One entry per item with geometry, so this is also the element count.
+      for (const category of categories) if (category) out.set(category, (out.get(category) ?? 0) + 1);
+      return out;
+    });
+    classCounts.set(model, counts);
+  }
+  return counts;
+}
+
 /** IFC classes found across all models, grouped by discipline, with visibility toggles. */
 export function Categories() {
-  const models = useViewer((s) => s.models);
+  // Only opening or closing models changes the classes (not showing/hiding a model).
+  const modelIds = useViewer((s) => s.models.map((m) => m.id).join("\n"));
   const hidden = useViewer((s) => s.hiddenClasses);
   const [groups, setGroups] = useState<Map<Discipline, ClassCount[]> | null>(null);
 
@@ -20,13 +37,10 @@ export function Categories() {
     let cancelled = false;
     void (async () => {
       const counts = new Map<string, number>();
-      for (const { id } of models) {
+      for (const id of modelIds ? modelIds.split("\n") : []) {
         const model = engine.getModel(id);
         if (!model) continue;
-        // One entry per item with geometry, so this is also the element count.
-        for (const category of await model.getItemsWithGeometryCategories()) {
-          if (category) counts.set(category, (counts.get(category) ?? 0) + 1);
-        }
+        for (const [category, n] of await countClasses(model)) counts.set(category, (counts.get(category) ?? 0) + n);
       }
       const byDiscipline = new Map<Discipline, ClassCount[]>();
       for (const [category, count] of counts) {
@@ -39,7 +53,7 @@ export function Categories() {
     return () => {
       cancelled = true;
     };
-  }, [models]);
+  }, [modelIds]);
 
   if (!groups) return <p className="empty">Reading classes…</p>;
   if (groups.size === 0) return <p className="empty">No classes yet.</p>;

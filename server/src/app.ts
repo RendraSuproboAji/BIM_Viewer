@@ -68,7 +68,17 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   // ---- Web app (production) ------------------------------------------------
   if (options.staticDir && existsSync(options.staticDir)) {
-    await app.register(fastifyStatic, { root: options.staticDir });
+    await app.register(fastifyStatic, {
+      root: options.staticDir,
+      // Serves the build's .gz/.br files when present (see the Dockerfile).
+      preCompressed: true,
+      cacheControl: false,
+      setHeaders: (res, filePath) => {
+        // Hashed build output never changes under the same name; the app shell always revalidates.
+        const hashed = /[\\/]assets[\\/]/.test(filePath);
+        res.header("Cache-Control", hashed ? "public, max-age=31536000, immutable" : "no-cache");
+      },
+    });
     app.setNotFoundHandler((req, reply) => {
       const path = req.url.split("?")[0];
       // Client-side routes get the app; missing API routes and files (e.g. /assets/x.js) get a real 404.

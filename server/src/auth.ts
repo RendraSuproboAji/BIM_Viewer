@@ -97,7 +97,19 @@ export function loginBlocked(key: string) {
   return entry.count >= MAX_FAILURES;
 }
 
+/** Bounds the table, so failed logins from many addresses can't grow it without limit. */
+const MAX_TRACKED = 10_000;
+
 export function recordLoginFailure(key: string) {
+  if (failures.size >= MAX_TRACKED && !failures.has(key)) {
+    const now = Date.now();
+    for (const [k, e] of failures) if (now - e.first > WINDOW_MS) failures.delete(k);
+    // Still full: forget the oldest entries (Map iteration follows insertion order).
+    for (const k of failures.keys()) {
+      if (failures.size < MAX_TRACKED) break;
+      failures.delete(k);
+    }
+  }
   const entry = failures.get(key);
   if (!entry || Date.now() - entry.first > WINDOW_MS) failures.set(key, { count: 1, first: Date.now() });
   else entry.count++;
