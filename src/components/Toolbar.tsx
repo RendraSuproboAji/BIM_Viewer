@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { hideSelection, isolateSelection, loadFiles, loadUrl, SAMPLE_IFC_URL, select, setGhost, showAll } from "../bim/actions";
 import { useCan } from "../bim/session";
 import { useViewer, type SectionAxis } from "../bim/store";
+import { XRMenu } from "../xr/XRMenu";
 import { ProjectMenu } from "./ProjectMenu";
 
 export function Toolbar() {
@@ -88,6 +89,8 @@ export function Toolbar() {
           </>
         )}
       </div>
+
+      <XRMenu />
     </header>
   );
 }

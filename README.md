@@ -28,6 +28,7 @@ An experimental web BIM viewer for IFC models, built with
   - **Saved views**: camera, section plane, hidden classes, X-ray, and which library models are open
   - **Issues**: each issue has a title, status, priority, assignee, due date, linked elements, a **viewpoint** (camera + section + snapshot) and comments. Opening an issue restores its viewpoint.
   - **BCF 2.1 import/export** (`.bcfzip`), for round trips with Revit, Solibri, BIMcollab, etc. The importer also reads BCF 3.0. Re-importing the same file updates the issues rather than duplicating them.
+- **VR, AR and MR** (WebXR, via [pmndrs/xr](https://github.com/pmndrs/xr)): walk through the model at 1:1 in VR, place it on a table or the floor in MR (Quest 3 passthrough), or in the camera view of a phone in AR. The **XR** menu checks the device first and shows each mode as ready, limited or unavailable, with the reason. See [VR, AR and MR](#vr-ar-and-mr).
 
 ## Stack: which repo does what
 
@@ -42,6 +43,8 @@ An experimental web BIM viewer for IFC models, built with
 | [pmndrs/zustand](https://github.com/pmndrs/zustand) | App state (models, selection, section, loading) |
 | [fastify/fastify](https://github.com/fastify/fastify) | API server (`server/`) |
 | [WiseLibs/better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | SQLite database |
+| [pmndrs/xr](https://github.com/pmndrs/xr) | WebXR sessions, controllers/hands, locomotion, DOM overlay; IWER emulator in development |
+| [pmndrs/uikit](https://github.com/pmndrs/uikit) | The in-headset menu and property panel |
 
 The key design choice is that **R3F owns rendering and That Open owns BIM data**.
 We don't use That Open's `World`/`SimpleRenderer`. Each loaded `FragmentsModel.object`
@@ -180,6 +183,50 @@ Every route except `/api/health`, `/api/auth/status`, `/setup`, `/login` and `/l
 Click **Load sample** to open ThatOpen's `school_str.ifc` (downloaded from GitHub),
 or open/drop your own `.ifc` / `.frag` file.
 
+## VR, AR and MR
+
+Open a model, then click **XR ▾** in the toolbar. The menu checks the connected device before you choose:
+
+1. **HTTPS**: WebXR only works in a secure context (or on `localhost`).
+2. **WebXR** in the browser, then `immersive-vr` and `immersive-ar` support.
+3. **Headset or handheld**, from the browser (Meta Quest Browser, Pico, Vision Pro, Android). After a session starts, `session.interactionMode` confirms it.
+
+Each mode is shown as **✓ ready**, **⚠ limited** or **✗ unavailable**, with the reason. **Show compatibility details** lists what the browser reported, plus the table below. The XR code (about 800 kB, 400 kB gzipped, including the menu font) only loads when the menu is opened; the initial download is unchanged.
+
+| Mode | What it is | Scale | Controls |
+| --- | --- | --- | --- |
+| **VR** | Fully virtual walkthrough | 1:1, or a 1:50 / 1:100 / 1:200 overview | Trigger: select (or measure); grip on a floor: teleport; left stick: move; right stick: snap turn |
+| **MR** | Headset passthrough; the model sits in your room | Starts at 1:100 on a table; 1:1 on the floor | Aim at a surface and pull the trigger (or pinch) to place; then trigger/pinch selects. The placement is anchored where the headset supports anchors |
+| **AR** | Phone/tablet camera view | Starts at 1:100 | Tap a surface to place, tap an element to select; the HTML bar and Properties panel stay on screen (DOM overlay) |
+
+In VR and MR a floating menu follows you: scale, start/re-place, section (axis, position, flip), X-ray, discipline toggles, distance measuring, and the selected element's properties. Colour-by, clash and comparison colours, hidden classes and the section plane carry into every mode.
+
+The user's origin is scaled and moved, never the model, so picking, snapping, clipping and BIM coordinates are exactly as on the desktop.
+
+### Devices
+
+| Device / browser | VR | AR | MR | Notes |
+| --- | :-: | :-: | :-: | --- |
+| **Meta Quest 3 / 3S** (Meta Quest Browser) | ✓ | – | ✓ | Primary target: colour passthrough, hands, planes, mesh, anchors, depth |
+| Meta Quest Pro | ✓ | – | ✓ | Colour passthrough, no depth sensing |
+| Meta Quest 2 | ✓ | – | ✓ | Greyscale passthrough |
+| Pico 4 / 4 Ultra (Pico Browser) | ✓ | – | ✓ | Partial plane/anchor support |
+| Apple Vision Pro (Safari) | ✓ | – | – | Safari has no `immersive-ar` |
+| Android phone with ARCore (Chrome) | – | ✓ | – | Hit-test and DOM overlay |
+| iPhone / iPad (Safari) | – | – | – | No WebXR |
+| PC VR (SteamVR/OpenXR: Quest Link, Index, Vive) in Chrome/Edge | ✓ | – | – | |
+
+The menu decides from what the browser actually reports; this table is what to expect.
+
+### Trying it
+
+- **Headset or phone on the LAN:** `npm run dev:xr` serves the dev build over HTTPS (self-signed certificate; accept the warning once) on all interfaces. Open `https://<your-pc-ip>:5173` on the device.
+- **Quest over USB:** `adb reverse tcp:5173 tcp:5173`, then `npm run dev` and open `http://localhost:5173` in the Quest browser (`localhost` counts as secure).
+- **No headset:** in `npm run dev` the menu uses the [IWER](https://github.com/meta-quest/immersive-web-emulation-runtime) Quest 3 emulator, with its on-screen controls. Production builds never include the emulator.
+- **Production:** serve over HTTPS (see `deploy/`).
+
+Controller models and hand meshes are loaded from the jsDelivr CDN. On an air-gapped site, host a copy of `@webxr-input-profiles/assets` and build with `VITE_XR_ASSETS=https://your-host/path/`. Without it, selecting and teleporting still work; only the controller models are missing.
+
 ## Project layout
 
 ```
@@ -207,6 +254,11 @@ src/
   bim/clash.ts, clash-run.ts    clash detection
   bim/compare.ts, compare-run.ts  model version comparison
   bim/*.test.ts        unit tests
+  bim/ray.ts           picking along a 3D ray (controllers), via the screen-space picker
+  xr/                  VR/AR/MR: capabilities (device check), XRMenu (mode picker), runtime (xr store),
+                       XRLayer (session scene), origin/placement (scaling and placing the user),
+                       SessionInput + actions (controller select/teleport/measure), XRPanel (in-headset UI),
+                       ARControls (phone DOM overlay)
   components/          Viewport (R3F canvas), Toolbar, ModelTree, Categories, Properties,
                        DataPanel, ClashPanel, ComparePanel, Library, Issues, Measurements,
                        Auth, ProjectMenu

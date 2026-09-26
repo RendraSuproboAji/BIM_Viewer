@@ -241,3 +241,28 @@ button.link.small { font-size: 12px; }
 .role-legend div { display: grid; grid-template-columns: 80px 1fr; align-items: baseline; gap: 8px; }
 .role-legend dt .role-badge { margin-left: 0; }
 .role-legend dd { margin: 0; }
+
+/* XR: mode picker */
+.xr-menu { position: relative; }
+.xr-dropdown { position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; width: 340px; padding: 10px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--panel, #161b22); border: 1px solid var(--border, #30363d); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.xr-dropdown-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.xr-mode { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; }
+.xr-mode-name { font-weight: 600; }
+.xr-mode-desc { font-size: 12px; opacity: .8; white-space: normal; }
+.xr-mode.xr-ready .xr-mode-name { color: #3fb950; }
+.xr-mode.xr-limited .xr-mode-name { color: #d29922; }
+.xr-mode.xr-unavailable .xr-mode-name { color: #8b949e; }
+.xr-mode.preferred { outline: 1px solid #1f6feb; }
+.xr-report table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.xr-report td, .xr-report th { padding: 2px 4px; border-bottom: 1px solid var(--border, #30363d); text-align: left; }
+.xr-report p { margin: 2px 0; }
+
+/* XR: handheld AR overlay (WebXR DOM overlay) */
+.xr-overlay { position: fixed; inset: 0; pointer-events: none; font: 14px system-ui, sans-serif; color: #e6edf3; }
+.xr-ar { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; }
+.xr-ar-bar { pointer-events: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px; padding: 8px; border-radius: 10px; background: rgba(22,27,34,.85); }
+.xr-ar-bar button, .xr-ar-bar select { padding: 8px 10px; border-radius: 8px; border: 1px solid #30363d; background: #30363d; color: inherit; font-size: 14px; }
+.xr-ar-bar button.active { background: #1f6feb; }
+.xr-ar-hint { flex-basis: 100%; opacity: .85; }
+.xr-ar-props { pointer-events: auto; max-height: 40vh; overflow: auto; margin: 12px; border-radius: 10px; background: rgba(22,27,34,.9); }

@@ -2,6 +2,7 @@ import * as OBC from "@thatopen/components";
 import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
 import type { IfcWorkerRequest, IfcWorkerResponse } from "./ifc-import";
+import { RAY_CANVAS, rayCamera } from "./ray";
 // Vite resolves this to a served URL for the Fragments web worker.
 import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
 
@@ -162,6 +163,21 @@ class BimEngine {
       .sort((a, b) => priority[a.snappingClass] - priority[b.snappingClass] || a.distance - b.distance)[0];
     const kind = best.snappingClass === FRAGS.SnappingClass.POINT ? "vertex" : best.snappingClass === FRAGS.SnappingClass.LINE ? "edge" : "face";
     return { point: best.point.toArray() as [number, number, number], kind: kind as "vertex" | "edge" | "face" };
+  }
+
+  /**
+   * Picks along a 3D ray (XR controllers and hands). The fragments raycasts are
+   * screen-space (camera + mouse + canvas), so the ray becomes a narrow camera at
+   * its origin looking along it, and the "mouse" sits at the centre of a 2×2 px
+   * virtual canvas.
+   */
+  async pickRay(ray: THREE.Ray) {
+    return this.pick(rayCamera(ray), RAY_CANVAS, 1, 1);
+  }
+
+  /** Snapping along a 3D ray (XR measurements). */
+  async snapRay(ray: THREE.Ray) {
+    return this.snapAt(rayCamera(ray), RAY_CANVAS, 1, 1);
   }
 
   /** Raycasts every visible model and returns the closest hit. */

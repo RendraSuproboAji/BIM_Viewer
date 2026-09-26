@@ -1,6 +1,6 @@
 import { CameraControls, GizmoHelper, GizmoViewport, Grid } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { select } from "../bim/actions";
 import { registerControls, registerRenderer } from "../bim/camera";
@@ -8,34 +8,63 @@ import { REQUIRED_POINTS, type Point, type SnapKind } from "../bim/measure";
 import { engine } from "../bim/engine";
 import { framingBox } from "../bim/framing";
 import { useViewer } from "../bim/store";
+import { useXRUi } from "../xr/state";
 import { MeasurementOverlay } from "./Measurements";
 
+/** VR/AR/MR support, loaded only once the user opens the XR menu (see src/xr/). */
+const XRLayer = lazy(() => import("../xr/XRLayer"));
+
 export function Viewport() {
+  const xrRequested = useXRUi((s) => s.runtimeLoaded);
   return (
     <Canvas
       className="viewport"
       camera={{ position: [30, 25, 30], fov: 45, near: 0.05, far: 100000 }}
       gl={{ antialias: true, logarithmicDepthBuffer: true }}
       // Draw only when something changes (camera, streamed geometry, edits), not 60× a second.
+      // (XR sessions render every headset frame regardless.)
       frameloop="demand"
       onCreated={({ gl }) => gl.setClearColor("#1d2126")}
     >
+      {xrRequested ? (
+        <Suspense fallback={<Scene />}>
+          <XRLayer>
+            <Scene />
+          </XRLayer>
+        </Suspense>
+      ) : (
+        <Scene />
+      )}
+    </Canvas>
+  );
+}
+
+function Scene() {
+  const xrMode = useXRUi((s) => s.mode);
+  return (
+    <>
       <ambientLight intensity={1.2} />
       <directionalLight position={[50, 80, 30]} intensity={2} />
-      <Grid
-        args={[500, 500]}
-        cellSize={1}
-        sectionSize={10}
-        cellColor="#3a4048"
-        sectionColor="#56606b"
-        fadeDistance={1500}
-        infiniteGrid
-      />
+      {/* In AR and MR the real world is the floor. */}
+      {xrMode !== "ar" && xrMode !== "mr" && (
+        <Grid
+          args={[500, 500]}
+          cellSize={1}
+          sectionSize={10}
+          cellColor="#3a4048"
+          sectionColor="#56606b"
+          fadeDistance={1500}
+          infiniteGrid
+          pointerEvents="none"
+        />
+      )}
       <Bim />
-      <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
-        <GizmoViewport labelColor="white" axisHeadScale={0.9} />
-      </GizmoHelper>
-    </Canvas>
+      {!xrMode && (
+        <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
+          <GizmoViewport labelColor="white" axisHeadScale={0.9} />
+        </GizmoHelper>
+      )}
+    </>
   );
 }
 
@@ -59,6 +88,9 @@ function Bim() {
       const model = engine.getModel(id);
       if (!model || model.object.parent === scene) continue;
       model.useCamera(camera as THREE.PerspectiveCamera);
+      // BIM picking goes through the fragments raycast (engine.pick/pickRay); keep XR
+      // pointers from raycasting the model meshes every frame.
+      (model.object as THREE.Object3D & { pointerEvents?: string }).pointerEvents = "none";
       scene.add(model.object);
     }
     // Remove objects of disposed models.
@@ -267,9 +299,11 @@ function Bim() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gl, camera]);
 
+  const inXR = useXRUi((s) => s.mode) !== null;
   return (
     <>
-      <CameraControls ref={controls} makeDefault />
+      {/* The headset owns the camera during an XR session. */}
+      <CameraControls ref={controls} makeDefault enabled={!inXR} />
       <MeasurementOverlay hover={hover} />
     </>
   );
