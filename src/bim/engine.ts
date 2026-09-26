@@ -97,45 +97,11 @@ class BimEngine {
    */
   update(force = false) {
     this.requestRender();
-    const request = (force ? this.forcedUpdate() : this.core.update(false)).then(
+    const request = this.core.update(force).then(
       () => this.requestRender(),
       () => {},
     );
     return Promise.race([request, new Promise<void>((resolve) => setTimeout(resolve, 1000))]);
-  }
-
-  private forcedRun: Promise<void> | null = null;
-  private forcedNext: Promise<void> | null = null;
-
-  /**
-   * fragments rate-limits `update()` to one per `maxUpdateRate` ms and silently drops
-   * calls inside that window, forced ones included. The forced update when the camera
-   * comes to rest (always within the window of the last move) or after an edit would
-   * then never run. Wait the window out, retrying if a camera update slipped in first.
-   * While a run is in flight, callers share one follow-up run (the in-flight one may
-   * have started before their change).
-   */
-  private forcedUpdate(): Promise<void> {
-    if (!this.forcedRun) {
-      this.forcedRun = this.runForced().finally(() => (this.forcedRun = null));
-      return this.forcedRun;
-    }
-    this.forcedNext ??= this.forcedRun.catch(() => {}).then(() => {
-      this.forcedNext = null;
-      return this.forcedUpdate();
-    });
-    return this.forcedNext;
-  }
-
-  private async runForced() {
-    const core = this.core as unknown as { _lastUpdate?: number };
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const wait = (core._lastUpdate ?? 0) + this.core.settings.maxUpdateRate - performance.now();
-      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait + 1));
-      const before = core._lastUpdate;
-      await this.core.update(true);
-      if (core._lastUpdate !== before) return; // it ran
-    }
   }
 
   async disposeModel(modelId: string) {

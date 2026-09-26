@@ -28,7 +28,6 @@
     "@react-three/fiber": "^9.8.1",
     "@react-three/uikit": "^1.0.76",
     "@react-three/xr": "^6.6.30",
-    "@thatopen/components": "^3.4.8",
     "@thatopen/fragments": "^3.4.7",
     "better-sqlite3": "^13.0.3",
     "camera-controls": "^3.1.2",

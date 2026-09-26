@@ -246,8 +246,6 @@ The viewer is built to load fast and stay light:
 
   `dist/` is 11 MB.
 - **Rendering on demand**, at half resolution while the camera moves and full resolution once it settles.
-- **Reliable streaming:** fragments rate-limits view updates. The engine makes sure the final update after a camera
-  move or an edit still runs, so the detail level always matches where the camera stopped.
 - **Server:**
   - SQLite in WAL mode with `synchronous = NORMAL`;
   - nginx serves precompressed, immutable-cached assets;

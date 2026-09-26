@@ -62,6 +62,8 @@ jobs:
         with:
           name: e2e-output
           path: e2e/.output
+          # The folder name starts with a dot, which upload-artifact skips by default.
+          include-hidden-files: true
           retention-days: 7
 
   deploy:
